@@ -27,7 +27,7 @@ export default function Home() {
       {/* ============ NAV ============ */}
       <nav>
         <a className="nav-brand" href="#" aria-label="GOTHAM home">
-          <Image src="/logo.jpeg" width={32} height={32} alt="" className="brand-mark" />
+          <Image src="/logo.png" width={32} height={32} alt="" className="brand-mark" />
           <span className="wordmark">GOTHAM</span>
         </a>
         <div className="nav-links">
@@ -548,7 +548,7 @@ export default function Home() {
       <footer>
         <div className="foot-grid">
           <div className="foot-brand">
-            <Image src="/logo.jpeg" width={36} height={36} alt="" className="brand-mark" />
+            <Image src="/logo.png" width={36} height={36} alt="" className="brand-mark" />
             <div className="wordmark">GOTHAM</div>
           </div>
           <div className="foot-col">
