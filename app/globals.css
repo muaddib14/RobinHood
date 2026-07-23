@@ -255,6 +255,11 @@ section{padding:calc(var(--pad)*1.5) var(--pad);}
   overflow:hidden;position:relative;
 }
 .panel-art svg{width:100%;height:100%;}
+.panel-art-seal{position:relative;}
+.panel-art-seal-logo{
+  position:absolute;top:47.6%;left:50%;transform:translate(-50%,-50%);
+  width:26%;height:auto;filter:drop-shadow(0 0 10px rgba(204,255,0,.4));
+}
 .panel p{
   font-size:11.5px;color:var(--pale);
   letter-spacing:.06em;text-transform:uppercase;line-height:2;

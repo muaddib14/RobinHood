@@ -239,7 +239,7 @@ export default function Home() {
               <br />
               Match
             </h3>
-            <div className="panel-art">
+            <div className="panel-art panel-art-seal">
               <svg viewBox="0 0 300 315" fill="none" aria-hidden="true">
                 <rect width="300" height="315" fill="url(#dither-sparse)" />
                 {/* grand seal: concentric rings + stars */}
@@ -256,16 +256,6 @@ export default function Home() {
                   <line x1="216" y1="216" x2="223" y2="223" />
                   <line x1="223" y1="77" x2="216" y2="84" />
                   <line x1="84" y1="216" x2="77" y2="223" />
-                </g>
-                {/* mask at seal center */}
-                <g transform="translate(102,128) scale(0.8)">
-                  <path
-                    d="M60 10 C42 2 20 0 6 8 C0 12 0 22 4 32 C10 48 24 58 38 56 C48 54 54 44 60 38 C66 44 72 54 82 56 C96 58 110 48 116 32 C120 22 120 12 114 8 C100 0 78 2 60 10 Z M34 30 a12 9 0 1 0 0.1 0 Z M86 30 a12 9 0 1 0 0.1 0 Z"
-                    fill="#0B3B17"
-                    stroke="#CCFF00"
-                    strokeWidth="2"
-                    fillRule="evenodd"
-                  />
                 </g>
                 <g fill="#CCFF00">
                   <path d="M150 24 l2.5 6 6 2.5 -6 2.5 -2.5 6 -2.5 -6 -6 -2.5 6 -2.5 Z" />
@@ -284,6 +274,7 @@ export default function Home() {
                   ARKHAM ENTITY DATABASE
                 </text>
               </svg>
+              <Image src="/logo.png" width={90} height={90} alt="" className="panel-art-seal-logo" />
             </div>
             <p>
               Upstream wallets checked against Arkham&apos;s database — <b>names, not addresses.</b>
