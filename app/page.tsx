@@ -1,4 +1,5 @@
 import Reveal from "./Reveal";
+import ScanShell from "./ScanShell";
 
 export default function Home() {
   return (
@@ -126,65 +127,7 @@ export default function Home() {
           </h2>
         </div>
 
-        <div className="scan-shell reveal">
-          <div className="scan-input">
-            <span className="prompt">❯</span>
-            <input
-              type="text"
-              defaultValue="7xKX…9fQm — new pump.fun token, 12 min old"
-              readOnly
-              aria-label="Token or wallet address"
-            />
-            <button className="scan-btn">Scan</button>
-          </div>
-          <div className="scan-body">
-            <div className="verdict">
-              <span className="verdict-dot" aria-hidden="true"></span>
-              <strong>High risk — funding traces to a serial deployer</strong>
-              <span className="time">Answered in 6.2s</span>
-            </div>
-            <div className="finding">
-              <span className="f-label">Deployer</span>
-              <span className="f-value">
-                Wallet is <b>3 hours old</b>, no prior deployments under this address.
-              </span>
-              <span className="src own">Robin engine</span>
-            </div>
-            <div className="finding">
-              <span className="f-label">Funding trace</span>
-              <span className="f-value">
-                Deploy SOL received from <b>4kPq…j2Wn</b>, one hop from a wallet that funded{" "}
-                <b>6 previous deployers</b> — 5 of those tokens went to zero within 48h.
-              </span>
-              <span className="src own">Robin engine</span>
-            </div>
-            <div className="finding">
-              <span className="f-label">Entity match</span>
-              <span className="f-value">
-                Upstream wallet clusters with an <b>Arkham-labeled entity</b> previously linked to coordinated
-                exits.
-              </span>
-              <span className="src arkham">Arkham</span>
-            </div>
-            <div className="finding">
-              <span className="f-label">Token checks</span>
-              <span className="f-value">
-                Mint authority <b>revoked</b> · freeze authority <b>revoked</b> · LP <b>not locked</b>.
-              </span>
-              <span className="src own">Robin engine</span>
-            </div>
-            <div className="finding">
-              <span className="f-label">Smart money</span>
-              <span className="f-value">No historically profitable Solana wallets among top 20 holders.</span>
-              <span className="src arkham">Arkham</span>
-            </div>
-            <p className="scan-footnote">
-              Every finding shows its source. <em>Robin engine</em> reads the chain live — it works on wallets
-              minutes old. <em>Arkham</em> confirms against the largest entity database in crypto once history
-              exists. Never blended into false certainty.
-            </p>
-          </div>
-        </div>
+        <ScanShell />
       </section>
 
       {/* ============ COVERAGE TRIPTYCH ============ */}
