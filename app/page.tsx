@@ -34,9 +34,9 @@ export default function Home() {
           <a href="#scan">Scan</a>
           <a href="#coverage">Coverage</a>
           <a href="#engines">Engines</a>
-          <a href="#">Docs</a>
+          <a href="#scan">Docs</a>
         </div>
-        <button className="nav-cta">Launch app</button>
+        <a href="#scan" className="nav-cta">Launch app</a>
       </nav>
 
       {/* ============ HERO ============ */}
@@ -96,8 +96,8 @@ export default function Home() {
         <h1 className="reveal in">GOTHAM</h1>
         <p className="hero-tag reveal in">Every wallet has a past. See it before you buy.</p>
         <div className="hero-ctas reveal in">
-          <button className="btn btn-solid">Launch app</button>
-          <button className="btn btn-line">Read the docs</button>
+          <a href="#scan" className="btn btn-solid">Launch app</a>
+          <a href="#coverage" className="btn btn-line">Read the docs</a>
         </div>
       </header>
 
@@ -511,8 +511,8 @@ export default function Home() {
           Free during early access. Paste any Solana token or wallet address and get your first answer in seconds.
         </p>
         <div className="hero-ctas reveal">
-          <button className="btn btn-solid">Launch app</button>
-          <button className="btn btn-line">Read the docs</button>
+          <a href="#scan" className="btn btn-solid">Launch app</a>
+          <a href="#coverage" className="btn btn-line">Read the docs</a>
         </div>
       </section>
 
@@ -528,13 +528,13 @@ export default function Home() {
             <a href="#scan">Scan</a>
             <a href="#coverage">Coverage</a>
             <a href="#engines">Engines</a>
-            <a href="#">Telegram alerts</a>
+            <a href="#scan">Telegram alerts</a>
           </div>
           <div className="foot-col">
             <h4>Resources</h4>
-            <a href="#">Docs</a>
-            <a href="#">API</a>
-            <a href="#">Changelog</a>
+            <a href="#scan">Docs</a>
+            <a href="#scan">API</a>
+            <a href="#coverage">Changelog</a>
           </div>
           <div className="foot-col">
             <h4>Company</h4>
