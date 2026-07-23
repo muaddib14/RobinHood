@@ -117,6 +117,11 @@ nav{
 }
 .hero-watermark span:last-child{align-self:flex-end;font-style:italic;}
 .hero-art{position:relative;width:clamp(260px, 36vw, 460px);margin-bottom:36px;}
+.hero-art svg{width:100%;height:auto;}
+.hero-art-logo{
+  position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);
+  width:34%;height:auto;filter:drop-shadow(0 0 18px rgba(204,255,0,.4));
+}
 .hero-kicker{
   font-size:11px;letter-spacing:.34em;text-transform:uppercase;
   margin-bottom:22px;color:var(--pale);

@@ -86,19 +86,8 @@ export default function Home() {
               <path d="M414 170 l1.8 4.4 4.4 1.8 -4.4 1.8 -1.8 4.4 -1.8 -4.4 -4.4 -1.8 4.4 -1.8 Z" opacity=".6" />
               <path d="M44 176 l1.8 4.4 4.4 1.8 -4.4 1.8 -1.8 4.4 -1.8 -4.4 -4.4 -1.8 4.4 -1.8 Z" opacity=".6" />
             </g>
-            {/* the mask, hatched like an engraving */}
-            <g transform="translate(140,105) scale(1.5)">
-              <path
-                id="maskpath"
-                d="M60 10 C42 2 20 0 6 8 C0 12 0 22 4 32 C10 48 24 58 38 56 C48 54 54 44 60 38 C66 44 72 54 82 56 C96 58 110 48 116 32 C120 22 120 12 114 8 C100 0 78 2 60 10 Z M34 30 a12 9 0 1 0 0.1 0 Z M86 30 a12 9 0 1 0 0.1 0 Z"
-                fill="url(#hatch)"
-                stroke="#CCFF00"
-                strokeWidth="1.4"
-                fillRule="evenodd"
-              />
-              <path d="M60 10 L54 26 L60 34 L66 26 Z" fill="#CCFF00" />
-            </g>
           </svg>
+          <Image src="/logo.png" width={220} height={220} alt="" className="hero-art-logo" />
         </div>
 
         <div className="hero-kicker reveal in">
