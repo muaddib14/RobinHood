@@ -1,0 +1,364 @@
+/* ============================================================
+   ROBIN v2 — engraved monochrome green
+   Field:   deep forest green (the "electric blue" role)
+   Ink:     neon chartreuse (Robinhood green) — all art & text
+   Display: Instrument Serif (engraving-era feel)
+   Brand:   Archivo Black-Expanded (ROBIN wordmark only)
+   Body:    IBM Plex Mono, uppercase, letterspaced
+   ============================================================ */
+:root{
+  --field:   #0B3B17;            /* deep saturated green field */
+  --field-2: #0A3113;            /* darker panel green */
+  --neon:    #CCFF00;            /* Robinhood chartreuse — the "ink" */
+  --pale:    #B9E88F;            /* softened green for long text */
+  --dim:     rgba(204,255,0,.38);
+  --line:    rgba(204,255,0,.28);
+  --frame:   6px;                /* outer page frame */
+
+  --serif: var(--font-instrument-serif), serif;
+  --mono: var(--font-ibm-plex-mono), monospace;
+  --brand: var(--font-archivo), sans-serif;
+
+  --pad: clamp(20px, 4vw, 64px);
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  background:var(--field);
+  color:var(--neon);
+  font-family:var(--mono);
+  font-size:13px;
+  line-height:1.8;
+  letter-spacing:.04em;
+  -webkit-font-smoothing:antialiased;
+  /* the enclosing frame, like the reference site */
+  border:var(--frame) solid var(--neon);
+  min-height:100svh;
+}
+::selection{background:var(--neon);color:var(--field);}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;cursor:pointer;}
+svg{display:block;}
+
+/* subtle full-page dither grain */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
+  background-image:radial-gradient(rgba(204,255,0,.05) 1px, transparent 1px);
+  background-size:3px 3px;
+  mix-blend-mode:screen;
+}
+
+.up{text-transform:uppercase;}
+.eyebrow{
+  font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim);
+}
+.serif-display{
+  font-family:var(--serif);
+  font-weight:400;
+  letter-spacing:.01em;
+  line-height:1.02;
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+nav{
+  position:sticky;top:0;z-index:40;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 var(--pad);
+  height:60px;
+  background:color-mix(in srgb, var(--field) 88%, transparent);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.nav-brand{display:flex;align-items:center;gap:12px;}
+.nav-brand .wordmark{
+  font-family:var(--brand);font-weight:900;font-stretch:115%;
+  font-size:16px;letter-spacing:.08em;
+}
+.nav-links{display:flex;gap:34px;font-size:11px;letter-spacing:.22em;text-transform:uppercase;}
+.nav-links a{padding:4px 0;border-bottom:1px solid transparent;transition:border-color .2s;}
+.nav-links a:hover{border-color:var(--neon);}
+.nav-cta{
+  background:var(--neon);color:var(--field);
+  border:none;
+  font-family:var(--mono);font-weight:600;
+  font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  padding:10px 20px;
+  transition:opacity .2s;
+}
+.nav-cta:hover{opacity:.85;}
+
+/* ============================================================
+   HERO — engraved sunburst behind the mask, watermark serif,
+   giant brand wordmark
+   ============================================================ */
+.hero{
+  position:relative;
+  min-height:calc(100svh - 60px - var(--frame)*2);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;
+  padding:60px var(--pad) 80px;
+  overflow:hidden;
+  border-bottom:1px solid var(--line);
+}
+/* giant serif watermark, like "NOUS PORTAL" ghost text */
+.hero-watermark{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;justify-content:center;
+  font-family:var(--serif);
+  font-size:clamp(120px, 24vw, 340px);
+  line-height:.9;
+  color:rgba(204,255,0,.07);
+  user-select:none;pointer-events:none;
+  letter-spacing:.02em;
+}
+.hero-watermark span:last-child{align-self:flex-end;font-style:italic;}
+.hero-art{position:relative;width:clamp(260px, 36vw, 460px);margin-bottom:36px;}
+.hero-kicker{
+  font-size:11px;letter-spacing:.34em;text-transform:uppercase;
+  margin-bottom:22px;color:var(--pale);
+}
+.hero-kicker .dot{color:var(--neon);}
+.hero h1{
+  font-family:var(--brand);
+  font-weight:900;font-stretch:120%;
+  font-size:clamp(64px, 12vw, 170px);
+  line-height:.85;letter-spacing:-.01em;
+  margin-bottom:30px;
+}
+.hero-tag{
+  font-family:var(--serif);
+  font-size:clamp(20px, 2.6vw, 30px);
+  font-style:italic;
+  color:var(--pale);
+  max-width:640px;line-height:1.35;
+  letter-spacing:0;text-transform:none;
+  margin-bottom:40px;
+}
+.hero-ctas{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;position:relative;z-index:2;}
+.btn{
+  font-family:var(--mono);font-size:12px;font-weight:600;
+  letter-spacing:.22em;text-transform:uppercase;
+  padding:14px 32px;
+  transition:all .2s ease;
+}
+.btn-solid{background:var(--neon);color:var(--field);border:1px solid var(--neon);}
+.btn-solid:hover{background:transparent;color:var(--neon);}
+.btn-line{background:transparent;color:var(--neon);border:1px solid var(--neon);}
+.btn-line:hover{background:var(--neon);color:var(--field);}
+
+/* ============================================================
+   SECTION SHELL
+   ============================================================ */
+section{padding:calc(var(--pad)*1.5) var(--pad);}
+.sec-head{text-align:center;margin-bottom:56px;}
+.sec-head .eyebrow{display:block;margin-bottom:14px;}
+.sec-head h2{
+  font-family:var(--serif);
+  font-size:clamp(34px, 5vw, 62px);
+  line-height:1.05;letter-spacing:0;
+}
+.sec-head h2 em{font-style:italic;}
+
+/* ============================================================
+   SCAN DEMO — engraved terminal
+   ============================================================ */
+.scan-shell{
+  max-width:860px;margin:0 auto;
+  border:1px solid var(--neon);
+  background:var(--field-2);
+  position:relative;
+}
+/* double-rule corner ornament */
+.scan-shell::before{
+  content:"";position:absolute;inset:5px;
+  border:1px solid var(--line);pointer-events:none;
+}
+.scan-input{
+  display:flex;align-items:center;gap:14px;
+  padding:20px 26px;
+  border-bottom:1px solid var(--line);
+  position:relative;
+}
+.scan-input .prompt{font-weight:600;}
+.scan-input input{
+  flex:1;border:none;outline:none;background:transparent;
+  font-family:var(--mono);font-size:12.5px;color:var(--pale);
+  letter-spacing:.04em;
+}
+.scan-btn{
+  background:var(--neon);color:var(--field);border:none;
+  font-family:var(--mono);font-weight:600;font-size:11px;
+  letter-spacing:.2em;text-transform:uppercase;
+  padding:10px 22px;
+}
+.scan-body{padding:28px 26px 32px;position:relative;}
+.verdict{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding-bottom:20px;margin-bottom:8px;
+  border-bottom:1px solid var(--line);
+}
+.verdict-dot{width:10px;height:10px;background:var(--neon);flex:none;animation:blink 1.4s steps(2) infinite;}
+@keyframes blink{50%{opacity:.25;}}
+.verdict strong{
+  font-family:var(--serif);font-weight:400;font-style:italic;
+  font-size:20px;letter-spacing:0;text-transform:none;color:var(--pale);
+}
+.verdict .time{margin-left:auto;font-size:10px;letter-spacing:.18em;color:var(--dim);}
+.finding{
+  display:grid;grid-template-columns:150px 1fr auto;gap:18px;align-items:baseline;
+  padding:14px 0;border-bottom:1px dashed var(--line);
+  font-size:12px;color:var(--pale);letter-spacing:.03em;
+}
+.finding:last-of-type{border-bottom:none;}
+.f-label{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);}
+.f-value b{color:var(--neon);font-weight:600;}
+.src{
+  font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+  padding:4px 10px;white-space:nowrap;
+}
+.src.own{background:var(--neon);color:var(--field);}
+.src.arkham{border:1px solid var(--line);color:var(--dim);}
+.scan-footnote{
+  margin-top:22px;padding-top:18px;border-top:1px solid var(--line);
+  font-size:11px;color:var(--dim);line-height:2;
+}
+.scan-footnote em{color:var(--neon);font-style:normal;}
+
+/* ============================================================
+   FEATURE TRIPTYCH — engraved art panels (reference: 3-col band)
+   ============================================================ */
+.triptych{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:40px;
+  max-width:1200px;margin:0 auto;
+}
+.panel h3{
+  font-family:var(--serif);
+  font-size:clamp(24px,2.6vw,34px);
+  line-height:1.05;letter-spacing:0;text-transform:uppercase;
+  min-height:2.1em;
+  margin-bottom:22px;
+}
+.panel-art{
+  border:1px solid var(--neon);
+  aspect-ratio:1/1.05;
+  margin-bottom:22px;
+  background:var(--field-2);
+  overflow:hidden;position:relative;
+}
+.panel-art svg{width:100%;height:100%;}
+.panel p{
+  font-size:11.5px;color:var(--pale);
+  letter-spacing:.06em;text-transform:uppercase;line-height:2;
+}
+.panel p b{color:var(--neon);font-weight:600;}
+
+/* second row of panels */
+.triptych + .triptych{margin-top:40px;}
+
+/* ============================================================
+   ENGINES — two-column engraved comparison
+   ============================================================ */
+.engines{border-top:1px solid var(--line);}
+.engine-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:1px;
+  background:var(--line);
+  border:1px solid var(--neon);
+  max-width:1100px;margin:0 auto;
+}
+.engine{background:var(--field);padding:44px 40px 50px;}
+.engine .e-tag{
+  display:inline-block;margin-bottom:26px;
+  font-size:10px;letter-spacing:.24em;text-transform:uppercase;
+  padding:7px 16px;
+}
+.engine.own .e-tag{background:var(--neon);color:var(--field);}
+.engine.ark .e-tag{border:1px solid var(--line);color:var(--dim);}
+.engine h3{
+  font-family:var(--serif);font-size:30px;font-weight:400;
+  letter-spacing:0;margin-bottom:14px;
+}
+.engine>p{font-size:11.5px;color:var(--pale);letter-spacing:.05em;text-transform:uppercase;line-height:2;max-width:400px;}
+.engine ul{list-style:none;margin-top:28px;font-size:11.5px;}
+.engine li{
+  padding:12px 0;border-top:1px solid var(--line);
+  color:var(--pale);letter-spacing:.08em;text-transform:uppercase;
+}
+.engine li::before{content:"— ";color:var(--neon);}
+
+/* ============================================================
+   HONESTY STRIP
+   ============================================================ */
+.strip{
+  border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);
+  text-align:center;
+  position:relative;overflow:hidden;
+}
+.strip .strip-art{
+  position:absolute;inset:0;opacity:.1;pointer-events:none;
+}
+.strip p{
+  position:relative;
+  font-family:var(--serif);
+  font-size:clamp(24px,3.4vw,42px);
+  font-style:italic;line-height:1.35;letter-spacing:0;
+  max-width:800px;margin:0 auto 20px;
+  color:var(--pale);
+}
+.strip .strip-mono{
+  position:relative;
+  font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--dim);
+}
+
+/* ============================================================
+   CTA + FOOTER
+   ============================================================ */
+.cta{text-align:center;}
+.cta .mask-halo{width:clamp(200px,26vw,320px);margin:0 auto 40px;}
+.cta h2{
+  font-family:var(--brand);font-weight:900;font-stretch:118%;
+  font-size:clamp(38px,6.5vw,84px);line-height:.9;letter-spacing:-.01em;
+  margin-bottom:20px;
+}
+.cta>p{
+  font-family:var(--serif);font-style:italic;font-size:19px;
+  color:var(--pale);letter-spacing:0;text-transform:none;
+  max-width:480px;margin:0 auto 40px;line-height:1.5;
+}
+footer{border-top:1px solid var(--neon);padding:48px var(--pad) 32px;}
+.foot-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:40px;padding-bottom:40px;}
+.foot-brand .wordmark{
+  font-family:var(--brand);font-weight:900;font-stretch:115%;
+  font-size:15px;letter-spacing:.08em;margin-top:14px;
+}
+.foot-col h4{font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--dim);margin-bottom:18px;}
+.foot-col a{display:block;font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:6px 0;color:var(--pale);}
+.foot-col a:hover{color:var(--neon);}
+.foot-legal{
+  border-top:1px solid var(--line);padding-top:22px;
+  display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;
+  font-size:10px;letter-spacing:.06em;color:var(--dim);line-height:2;
+}
+.foot-legal .disclaimer{max-width:620px;}
+
+/* ---------- reveal ---------- */
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .8s ease,transform .8s ease;}
+.reveal.in{opacity:1;transform:none;}
+@media (prefers-reduced-motion:reduce){
+  .reveal{opacity:1;transform:none;transition:none;}
+  .verdict-dot{animation:none;}
+  html{scroll-behavior:auto;}
+}
+
+/* ---------- responsive ---------- */
+@media (max-width:960px){
+  .nav-links{display:none;}
+  .triptych{grid-template-columns:1fr;max-width:460px;}
+  .engine-grid{grid-template-columns:1fr;}
+  .foot-grid{grid-template-columns:1fr 1fr;}
+  .finding{grid-template-columns:1fr;gap:6px;}
+  .src{justify-self:start;}
+}
