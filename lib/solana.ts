@@ -57,3 +57,58 @@ export async function getMintChecks(address: string): Promise<MintChecks> {
     freezeAuthorityRevoked: !parsed.info?.freezeAuthority,
   };
 }
+
+export type DeployerHistory = { scannedTx: number; priorMints: string[] };
+
+// SPL Token program instructions that create a new mint.
+const MINT_INIT_TYPES = new Set(["initializeMint", "initializeMint2"]);
+
+type ParsedIx = { program?: string; parsed?: { type?: string; info?: Record<string, unknown> } };
+
+/**
+ * Scans the last `sampleSize` transactions signed by `address` for
+ * SPL `initializeMint` instructions it authored — i.e. tokens this wallet
+ * has deployed before. Single batched RPC round-trip (one HTTP request
+ * carrying an array of getTransaction calls), not one request per tx.
+ * Bounded window: this is "prior deployments in recent history", not a
+ * guarantee of zero for wallets with more than `sampleSize` transactions.
+ */
+export async function getDeployerHistory(address: string, sampleSize = 100): Promise<DeployerHistory> {
+  if (!RPC_URL) throw new Error("SOLANA_RPC_URL is not configured");
+
+  const sigs = await rpc<Array<{ signature: string }>>("getSignaturesForAddress", [
+    address,
+    { limit: sampleSize },
+  ]);
+  if (!sigs.length) return { scannedTx: 0, priorMints: [] };
+
+  const batchBody = sigs.map((s, i) => ({
+    jsonrpc: "2.0",
+    id: i,
+    method: "getTransaction",
+    params: [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }],
+  }));
+
+  const res = await fetch(RPC_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(batchBody),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Solana RPC batch getTransaction failed: ${res.status}`);
+  const results: Array<{ result?: { transaction?: { message?: { instructions?: ParsedIx[] } } } }> =
+    await res.json();
+
+  const priorMints = new Set<string>();
+  for (const entry of results) {
+    const instructions = entry.result?.transaction?.message?.instructions ?? [];
+    for (const ix of instructions) {
+      if (ix.program !== "spl-token") continue;
+      if (!ix.parsed?.type || !MINT_INIT_TYPES.has(ix.parsed.type)) continue;
+      const info = ix.parsed.info as { mint?: string; mintAuthority?: string } | undefined;
+      if (info?.mintAuthority === address && info.mint) priorMints.add(info.mint);
+    }
+  }
+
+  return { scannedTx: sigs.length, priorMints: [...priorMints] };
+}

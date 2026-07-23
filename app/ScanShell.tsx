@@ -9,6 +9,7 @@ type ScanResult = {
   confidence: "low" | "medium" | "high";
   elapsedMs: number;
   findings: Finding[];
+  exitWatch: { armed: boolean; alertId: number | null };
 };
 
 const PLACEHOLDER = "Paste a Solana token or wallet address";
@@ -86,6 +87,9 @@ export default function ScanShell() {
             <p className="scan-footnote">
               Confidence: <em>{state.result.confidence}</em>. Every finding shows its source — never blended into
               false certainty.
+              {state.result.exitWatch.armed && (
+                <> · Exit Watch armed (alert #{state.result.exitWatch.alertId}) — you&apos;ll be notified on transfer activity.</>
+              )}
             </p>
           </>
         )}
