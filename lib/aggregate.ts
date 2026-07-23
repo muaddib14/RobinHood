@@ -1,6 +1,14 @@
 import { getWalletAge, getMintChecks, getDeployerHistory } from "./solana";
-import { getAddressIntel, getRisk, getCounterparties, getTokenHolders, getRiskBatch, createExitWatchAlert } from "./arkham";
 import { getLpLockStatus } from "./raydium";
+import { getTokenReport, topMarket } from "./rugcheck";
+import {
+  getAddressIntel,
+  getRisk,
+  getCounterparties,
+  getTokenHolders,
+  getRiskBatch,
+  createExitWatchAlert,
+} from "./arkham";
 import { synthesizeVerdict } from "./openrouter";
 
 export type Finding = { label: string; value: string; source: "own" | "arkham" };
@@ -23,38 +31,43 @@ function ageLabel(ms: number | null): string {
 }
 
 /**
- * One scan = parallel fan-out to both engines, degrade gracefully per-source.
- * Arkham being down/rate-limited never blocks the Gotham-engine findings.
+ * One scan = parallel fan-out to every source, degrade gracefully per-source.
+ * Two tiers, both optional:
+ *  - RugCheck (free, no key) covers token-safety signals Arkham would
+ *    otherwise gate behind a paid plan — deployer, mint/freeze, LP lock,
+ *    holder concentration.
+ *  - Arkham (needs ARKHAM_API_KEY) adds the entity graph + smart-money +
+ *    exit-watch layer on top, when/if a key is configured. Its absence
+ *    never blocks a scan — Promise.allSettled already isolates every
+ *    Arkham call, so an unset key just means those findings don't appear.
  */
 export async function scanAddress(address: string): Promise<ScanResult> {
   const started = Date.now();
   const findings: Finding[] = [];
 
-  const [age, mint, deployerHistory, lpLock, intel, risk, counterparties, holders] = await Promise.allSettled([
-    getWalletAge(address),
-    getMintChecks(address),
-    getDeployerHistory(address),
-    getLpLockStatus(address),
-    getAddressIntel(address),
-    getRisk(address),
-    getCounterparties(address),
-    getTokenHolders("solana", address),
-  ]);
+  const reportResult = await Promise.allSettled([getTokenReport(address)]);
+  const report = reportResult[0].status === "fulfilled" ? reportResult[0].value : null;
+
+  // If RugCheck knows this as a token, the deployer is its creator, not the
+  // mint address itself — every deployer-scoped lookup below should target that.
+  const deployerAddress = report?.creator ?? address;
+
+  const [age, deployerHistory, mintFallback, lpFallback, intel, risk, counterparties, holders] =
+    await Promise.allSettled([
+      getWalletAge(deployerAddress),
+      getDeployerHistory(deployerAddress),
+      report ? Promise.resolve(null) : getMintChecks(address),
+      report ? Promise.resolve(null) : getLpLockStatus(address),
+      getAddressIntel(address),
+      getRisk(address),
+      getCounterparties(address),
+      getTokenHolders("solana", address),
+    ]);
 
   if (age.status === "fulfilled") {
     findings.push({
-      label: "Wallet age",
-      value: `Address is ${ageLabel(age.value.ageMs)}, ${age.value.txCount} known transactions.`,
-      source: "own",
-    });
-  }
-
-  if (mint.status === "fulfilled" && mint.value.isMint) {
-    findings.push({
-      label: "Token checks",
-      value: `Mint authority ${mint.value.mintAuthorityRevoked ? "revoked" : "ACTIVE"} · freeze authority ${
-        mint.value.freezeAuthorityRevoked ? "revoked" : "ACTIVE"
-      }.`,
+      label: "Deployer age",
+      value: `${report ? "Deployer wallet" : "Address"} is ${ageLabel(age.value.ageMs)}, ${age.value.txCount} known transactions.`,
       source: "own",
     });
   }
@@ -73,17 +86,68 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     }
   }
 
-  if (lpLock.status === "fulfilled" && lpLock.value.found) {
-    const { burnPercent, tvl } = lpLock.value;
+  if (report) {
+    // ---- Token path: RugCheck has this mint indexed. ----
     findings.push({
-      label: "LP lock",
-      value: `Top pool has $${Math.round(tvl).toLocaleString()} TVL, ${burnPercent.toFixed(
-        1
-      )}% of LP supply burned${burnPercent < 50 ? " — most liquidity is still pullable by the owner" : ""}.`,
+      label: "Token checks",
+      value: `Mint authority ${report.token.mintAuthority ? "ACTIVE" : "revoked"} · freeze authority ${
+        report.token.freezeAuthority ? "ACTIVE" : "revoked"
+      }.`,
       source: "own",
     });
+
+    const market = topMarket(report);
+    if (market) {
+      const { lpLockedPct, lpLockedUSD, baseUSD, quoteUSD } = market.lp;
+      findings.push({
+        label: "LP lock",
+        value: `Top pool (${market.marketType}) has $${Math.round(baseUSD + quoteUSD).toLocaleString()} liquidity, ${lpLockedPct.toFixed(
+          1
+        )}% locked ($${Math.round(lpLockedUSD).toLocaleString()})${lpLockedPct < 50 ? " — most liquidity is still pullable" : ""}.`,
+        source: "own",
+      });
+    }
+
+    if (report.topHolders.length) {
+      const insiders = report.topHolders.filter((h) => h.insider).length;
+      const topPct = report.topHolders[0]?.pct ?? 0;
+      findings.push({
+        label: "Holder concentration",
+        value: `Top holder owns ${topPct.toFixed(1)}% of supply; ${insiders} of top ${report.topHolders.length} holders flagged as insider wallets.`,
+        source: "own",
+      });
+    }
+
+    if (report.risks.length) {
+      const names = report.risks.map((r) => r.name).join(", ");
+      findings.push({
+        label: "Risk signals",
+        value: `RugCheck score ${report.score_normalised}/100 (higher = riskier). Flags: ${names}.`,
+        source: "own",
+      });
+    }
+  } else {
+    // ---- Wallet path: not a mint RugCheck knows about — fall back to raw RPC. ----
+    if (mintFallback.status === "fulfilled" && mintFallback.value?.isMint) {
+      findings.push({
+        label: "Token checks",
+        value: `Mint authority ${mintFallback.value.mintAuthorityRevoked ? "revoked" : "ACTIVE"} · freeze authority ${
+          mintFallback.value.freezeAuthorityRevoked ? "revoked" : "ACTIVE"
+        }.`,
+        source: "own",
+      });
+    }
+    if (lpFallback.status === "fulfilled" && lpFallback.value?.found) {
+      const { burnPercent, tvl } = lpFallback.value;
+      findings.push({
+        label: "LP lock",
+        value: `Top pool has $${Math.round(tvl).toLocaleString()} TVL, ${burnPercent.toFixed(1)}% of LP supply burned.`,
+        source: "own",
+      });
+    }
   }
 
+  // ---- Arkham layer: entirely optional, only populates if ARKHAM_API_KEY is set. ----
   if (intel.status === "fulfilled" && intel.value) {
     const name = intel.value.arkhamEntity?.name ?? intel.value.arkhamLabel?.name;
     findings.push({
@@ -91,14 +155,12 @@ export async function scanAddress(address: string): Promise<ScanResult> {
       value: name ? `Matches known entity: ${name}.` : "Address has Arkham data but no entity label yet.",
       source: "arkham",
     });
-  } else if (intel.status === "fulfilled") {
-    findings.push({ label: "Entity match", value: "Unlabeled — no Arkham entity history yet.", source: "arkham" });
   }
 
   if (risk.status === "fulfilled" && risk.value) {
     findings.push({
-      label: "Risk score",
-      value: `Arkham risk level: ${risk.value.risk_level} (score ${risk.value.max_score}/100)${
+      label: "Arkham risk score",
+      value: `Risk level: ${risk.value.risk_level} (score ${risk.value.max_score}/100)${
         risk.value.greatest_risk_category ? `, driven by ${risk.value.greatest_risk_category} exposure` : ""
       }.`,
       source: "arkham",
@@ -120,8 +182,6 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     }
   }
 
-  // Smart Money: cross-check top holders against Arkham risk data instead of
-  // maintaining our own "profitable wallet" database.
   if (holders.status === "fulfilled" && holders.value) {
     const top = Object.values(holders.value.addressTopHolders)[0] ?? [];
     const holderAddresses = top.slice(0, 20).map((h) => h.address.address);
@@ -154,9 +214,6 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     // must never hide the findings that already succeeded.
   }
 
-  // Exit Watch: arm Arkham's own live-transfer alerting instead of running a
-  // WebSocket consumer ourselves. No-ops silently if ARKHAM_ALERT_METHOD_ID
-  // isn't configured — this is opt-in, not required for a scan to succeed.
   let exitWatch: ScanResult["exitWatch"] = { armed: false, alertId: null };
   try {
     const alertId = await createExitWatchAlert(address, `Gotham exit-watch: ${address.slice(0, 8)}…`);
