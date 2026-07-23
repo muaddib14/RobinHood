@@ -1,9 +1,9 @@
 /* ============================================================
-   ROBIN v2 — engraved monochrome green
+   GOTHAM v2 — engraved monochrome green
    Field:   deep forest green (the "electric blue" role)
    Ink:     neon chartreuse (Robinhood green) — all art & text
    Display: Instrument Serif (engraving-era feel)
-   Brand:   Archivo Black-Expanded (ROBIN wordmark only)
+   Brand:   Archivo Black-Expanded (GOTHAM wordmark only)
    Body:    IBM Plex Mono, uppercase, letterspaced
    ============================================================ */
 :root{
@@ -77,6 +77,7 @@ nav{
   font-family:var(--brand);font-weight:900;font-stretch:115%;
   font-size:16px;letter-spacing:.08em;
 }
+.brand-mark{border-radius:4px;flex:none;}
 .nav-links{display:flex;gap:34px;font-size:11px;letter-spacing:.22em;text-transform:uppercase;}
 .nav-links a{padding:4px 0;border-bottom:1px solid transparent;transition:border-color .2s;}
 .nav-links a:hover{border-color:var(--neon);}

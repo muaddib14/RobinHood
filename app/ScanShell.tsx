@@ -56,7 +56,7 @@ export default function ScanShell() {
       <div className="scan-body">
         {state.status === "idle" && (
           <p className="scan-footnote">
-            Every finding shows its source. <em>Robin engine</em> reads the chain live — it works on wallets
+            Every finding shows its source. <em>Gotham engine</em> reads the chain live — it works on wallets
             minutes old. <em>Arkham</em> confirms against the largest entity database in crypto once history
             exists. Never blended into false certainty.
           </p>
@@ -80,7 +80,7 @@ export default function ScanShell() {
               <div className="finding" key={i}>
                 <span className="f-label">{f.label}</span>
                 <span className="f-value">{f.value}</span>
-                <span className={`src ${f.source}`}>{f.source === "own" ? "Robin engine" : "Arkham"}</span>
+                <span className={`src ${f.source}`}>{f.source === "own" ? "Gotham engine" : "Arkham"}</span>
               </div>
             ))}
             <p className="scan-footnote">

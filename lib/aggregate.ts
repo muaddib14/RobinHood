@@ -22,7 +22,7 @@ function ageLabel(ms: number | null): string {
 
 /**
  * One scan = parallel fan-out to both engines, degrade gracefully per-source.
- * Arkham being down/rate-limited never blocks the Robin-engine findings.
+ * Arkham being down/rate-limited never blocks the Gotham-engine findings.
  */
 export async function scanAddress(address: string): Promise<ScanResult> {
   const started = Date.now();

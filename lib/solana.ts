@@ -1,5 +1,5 @@
 /**
- * Robin engine — live on-chain reads via raw Solana JSON-RPC.
+ * Gotham engine — live on-chain reads via raw Solana JSON-RPC.
  * No @solana/web3.js dependency: keeps the serverless bundle tiny.
  * Never depends on Arkham; this is what still works when Arkham is down.
  */

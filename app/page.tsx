@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Reveal from "./Reveal";
 import ScanShell from "./ScanShell";
 
@@ -25,16 +26,9 @@ export default function Home() {
 
       {/* ============ NAV ============ */}
       <nav>
-        <a className="nav-brand" href="#" aria-label="ROBIN home">
-          <svg width="34" height="19" viewBox="0 0 120 64" aria-hidden="true">
-            <path
-              d="M60 10 C42 2 20 0 6 8 C0 12 0 22 4 32 C10 48 24 58 38 56 C48 54 54 44 60 38 C66 44 72 54 82 56 C96 58 110 48 116 32 C120 22 120 12 114 8 C100 0 78 2 60 10 Z M34 30 a12 9 0 1 0 0.1 0 Z M86 30 a12 9 0 1 0 0.1 0 Z"
-              fill="#CCFF00"
-              fillRule="evenodd"
-            />
-            <path d="M60 10 L54 26 L60 34 L66 26 Z" fill="#CCFF00" />
-          </svg>
-          <span className="wordmark">ROBIN</span>
+        <a className="nav-brand" href="#" aria-label="GOTHAM home">
+          <Image src="/logo.jpeg" width={32} height={32} alt="" className="brand-mark" />
+          <span className="wordmark">GOTHAM</span>
         </a>
         <div className="nav-links">
           <a href="#scan">Scan</a>
@@ -110,7 +104,7 @@ export default function Home() {
         <div className="hero-kicker reveal in">
           Wallet intelligence <span className="dot">·</span> Solana <span className="dot">·</span> est. 2026
         </div>
-        <h1 className="reveal in">ROBIN</h1>
+        <h1 className="reveal in">GOTHAM</h1>
         <p className="hero-tag reveal in">Every wallet has a past. See it before you buy.</p>
         <div className="hero-ctas reveal in">
           <button className="btn btn-solid">Launch app</button>
@@ -471,7 +465,7 @@ export default function Home() {
         </div>
         <div className="engine-grid">
           <div className="engine own reveal">
-            <span className="e-tag">Robin engine</span>
+            <span className="e-tag">Gotham engine</span>
             <h3>Live on-chain reads</h3>
             <p>
               Built for wallets that are minutes old — before any database has labeled them. Runs on every scan,
@@ -554,15 +548,8 @@ export default function Home() {
       <footer>
         <div className="foot-grid">
           <div className="foot-brand">
-            <svg width="40" height="22" viewBox="0 0 120 64" aria-hidden="true">
-              <path
-                d="M60 10 C42 2 20 0 6 8 C0 12 0 22 4 32 C10 48 24 58 38 56 C48 54 54 44 60 38 C66 44 72 54 82 56 C96 58 110 48 116 32 C120 22 120 12 114 8 C100 0 78 2 60 10 Z M34 30 a12 9 0 1 0 0.1 0 Z M86 30 a12 9 0 1 0 0.1 0 Z"
-                fill="#CCFF00"
-                fillRule="evenodd"
-              />
-              <path d="M60 10 L54 26 L60 34 L66 26 Z" fill="#CCFF00" />
-            </svg>
-            <div className="wordmark">ROBIN</div>
+            <Image src="/logo.jpeg" width={36} height={36} alt="" className="brand-mark" />
+            <div className="wordmark">GOTHAM</div>
           </div>
           <div className="foot-col">
             <h4>Product</h4>
@@ -586,11 +573,11 @@ export default function Home() {
         </div>
         <div className="foot-legal">
           <span className="disclaimer">
-            Robin provides on-chain data analysis for informational purposes only. Nothing here is financial,
-            investment, or trading advice. Entity data partially sourced from Arkham Intelligence. Robin is not
+            Gotham provides on-chain data analysis for informational purposes only. Nothing here is financial,
+            investment, or trading advice. Entity data partially sourced from Arkham Intelligence. Gotham is not
             affiliated with Arkham, Robinhood Markets, or Hermès.
           </span>
-          <span>© 2026 ROBIN — MIT-adjacent vibes, all rights reserved</span>
+          <span>© 2026 GOTHAM — MIT-adjacent vibes, all rights reserved</span>
         </div>
       </footer>
 
