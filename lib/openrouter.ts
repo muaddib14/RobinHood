@@ -6,7 +6,10 @@
  */
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = process.env.OPENROUTER_MODEL || "mistralai/ministral-8b";
+const envModel = process.env.OPENROUTER_MODEL;
+const MODEL = (!envModel || envModel === "mistralai/ministral-8b") 
+  ? "mistralai/ministral-8b-2512" 
+  : envModel;
 
 export type SynthesisInput = {
   address: string;
@@ -41,12 +44,14 @@ export async function synthesizeVerdict(input: SynthesisInput): Promise<Synthesi
       ],
       response_format: { type: "json_object" },
       temperature: 0.2,
-      max_tokens: 200,
+      max_tokens: 75,
     }),
-    cache: "no-store",
   });
 
-  if (!res.ok) throw new Error(`OpenRouter synthesis failed: ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`OpenRouter synthesis failed (${res.status}): ${errText}`);
+  }
   const json = await res.json();
   const content = json.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter returned no content");

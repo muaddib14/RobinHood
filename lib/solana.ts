@@ -68,12 +68,14 @@ type ParsedIx = { program?: string; parsed?: { type?: string; info?: Record<stri
 /**
  * Scans the last `sampleSize` transactions signed by `address` for
  * SPL `initializeMint` instructions it authored — i.e. tokens this wallet
- * has deployed before. Single batched RPC round-trip (one HTTP request
- * carrying an array of getTransaction calls), not one request per tx.
- * Bounded window: this is "prior deployments in recent history", not a
- * guarantee of zero for wallets with more than `sampleSize` transactions.
+ * has deployed before. Issues individual getTransaction calls with bounded
+ * concurrency (NOT a JSON-RPC batch array): free-tier RPC providers (Helius
+ * included) reject batch requests outright with -32403 "paid plans only",
+ * confirmed against a live key, so this fans out real concurrent HTTP
+ * requests instead. Bounded window: this is "prior deployments in recent
+ * history", not a guarantee of zero for wallets with more transactions.
  */
-export async function getDeployerHistory(address: string, sampleSize = 100): Promise<DeployerHistory> {
+export async function getDeployerHistory(address: string, sampleSize = 40): Promise<DeployerHistory> {
   if (!RPC_URL) throw new Error("SOLANA_RPC_URL is not configured");
 
   const sigs = await rpc<Array<{ signature: string }>>("getSignaturesForAddress", [
@@ -82,31 +84,26 @@ export async function getDeployerHistory(address: string, sampleSize = 100): Pro
   ]);
   if (!sigs.length) return { scannedTx: 0, priorMints: [] };
 
-  const batchBody = sigs.map((s, i) => ({
-    jsonrpc: "2.0",
-    id: i,
-    method: "getTransaction",
-    params: [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }],
-  }));
-
-  const res = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(batchBody),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Solana RPC batch getTransaction failed: ${res.status}`);
-  const results: Array<{ result?: { transaction?: { message?: { instructions?: ParsedIx[] } } } }> =
-    await res.json();
-
   const priorMints = new Set<string>();
-  for (const entry of results) {
-    const instructions = entry.result?.transaction?.message?.instructions ?? [];
-    for (const ix of instructions) {
-      if (ix.program !== "spl-token") continue;
-      if (!ix.parsed?.type || !MINT_INIT_TYPES.has(ix.parsed.type)) continue;
-      const info = ix.parsed.info as { mint?: string; mintAuthority?: string } | undefined;
-      if (info?.mintAuthority === address && info.mint) priorMints.add(info.mint);
+  const CONCURRENCY = 8;
+  for (let i = 0; i < sigs.length; i += CONCURRENCY) {
+    const chunk = sigs.slice(i, i + CONCURRENCY);
+    const txs = await Promise.all(
+      chunk.map((s) =>
+        rpc<{ transaction?: { message?: { instructions?: ParsedIx[] } } } | null>("getTransaction", [
+          s.signature,
+          { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 },
+        ]).catch(() => null)
+      )
+    );
+    for (const tx of txs) {
+      const instructions = tx?.transaction?.message?.instructions ?? [];
+      for (const ix of instructions) {
+        if (ix.program !== "spl-token") continue;
+        if (!ix.parsed?.type || !MINT_INIT_TYPES.has(ix.parsed.type)) continue;
+        const info = ix.parsed.info as { mint?: string; mintAuthority?: string } | undefined;
+        if (info?.mintAuthority === address && info.mint) priorMints.add(info.mint);
+      }
     }
   }
 

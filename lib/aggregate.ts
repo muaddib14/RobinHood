@@ -209,7 +209,8 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     const synthesis = await synthesizeVerdict({ address, findings });
     verdict = synthesis.verdict;
     confidence = synthesis.confidence;
-  } catch {
+  } catch (err) {
+    console.error("Synthesis failed:", err);
     // Synthesis is a summarizer, not a source of truth — a failure here
     // must never hide the findings that already succeeded.
   }
