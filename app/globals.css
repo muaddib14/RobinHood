@@ -318,7 +318,12 @@ section{padding:calc(var(--pad)*1.5) var(--pad);}
    CTA + FOOTER
    ============================================================ */
 .cta{text-align:center;}
-.cta .mask-halo{width:clamp(200px,26vw,320px);margin:0 auto 40px;}
+.cta .mask-halo{width:clamp(200px,26vw,320px);margin:0 auto 40px;position:relative;}
+.cta .mask-halo svg{width:100%;height:auto;}
+.cta .mask-halo-logo{
+  position:absolute;top:53%;left:50%;transform:translate(-50%,-50%);
+  width:32%;height:auto;filter:drop-shadow(0 0 14px rgba(204,255,0,.35));
+}
 .cta h2{
   font-family:var(--brand);font-weight:900;font-stretch:118%;
   font-size:clamp(38px,6.5vw,84px);line-height:.9;letter-spacing:-.01em;

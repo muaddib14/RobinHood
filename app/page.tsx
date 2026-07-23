@@ -507,29 +507,21 @@ export default function Home() {
 
       {/* ============ CTA ============ */}
       <section className="cta">
-        {/* mask in halo */}
-        <svg className="mask-halo reveal" viewBox="0 0 320 200" fill="none" aria-hidden="true">
-          <circle cx="160" cy="100" r="88" stroke="#CCFF00" strokeWidth="1" opacity=".5" />
-          <circle cx="160" cy="100" r="72" stroke="#CCFF00" strokeWidth=".7" strokeDasharray="2 4" opacity=".6" />
-          <g stroke="#CCFF00" strokeWidth=".8" opacity=".55">
-            <line x1="160" y1="100" x2="160" y2="4" />
-            <line x1="160" y1="100" x2="72" y2="26" />
-            <line x1="160" y1="100" x2="248" y2="26" />
-            <line x1="160" y1="100" x2="40" y2="76" />
-            <line x1="160" y1="100" x2="280" y2="76" />
-          </g>
-          <ellipse cx="160" cy="102" rx="76" ry="42" fill="#0B3B17" />
-          <g transform="translate(100,72) scale(1)">
-            <path
-              d="M60 10 C42 2 20 0 6 8 C0 12 0 22 4 32 C10 48 24 58 38 56 C48 54 54 44 60 38 C66 44 72 54 82 56 C96 58 110 48 116 32 C120 22 120 12 114 8 C100 0 78 2 60 10 Z M34 30 a12 9 0 1 0 0.1 0 Z M86 30 a12 9 0 1 0 0.1 0 Z"
-              fill="url(#hatch)"
-              stroke="#CCFF00"
-              strokeWidth="1.4"
-              fillRule="evenodd"
-            />
-            <path d="M60 10 L54 26 L60 34 L66 26 Z" fill="#CCFF00" />
-          </g>
-        </svg>
+        <div className="mask-halo reveal">
+          <svg viewBox="0 0 320 200" fill="none" aria-hidden="true">
+            <circle cx="160" cy="100" r="88" stroke="#CCFF00" strokeWidth="1" opacity=".5" />
+            <circle cx="160" cy="100" r="72" stroke="#CCFF00" strokeWidth=".7" strokeDasharray="2 4" opacity=".6" />
+            <g stroke="#CCFF00" strokeWidth=".8" opacity=".55">
+              <line x1="160" y1="100" x2="160" y2="4" />
+              <line x1="160" y1="100" x2="72" y2="26" />
+              <line x1="160" y1="100" x2="248" y2="26" />
+              <line x1="160" y1="100" x2="40" y2="76" />
+              <line x1="160" y1="100" x2="280" y2="76" />
+            </g>
+            <ellipse cx="160" cy="102" rx="76" ry="42" fill="#0B3B17" />
+          </svg>
+          <Image src="/logo.png" width={140} height={140} alt="" className="mask-halo-logo" />
+        </div>
         <h2 className="reveal">
           SCAN BEFORE
           <br />
