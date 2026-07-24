@@ -1,31 +1,34 @@
 /**
- * Verdict synthesis via OpenRouter (Ministral) — single-user personal deploy,
- * so a cheap small model is deliberate, not a compromise: this is a summarizer,
- * not a reasoning engine. Findings are computed upstream; the model only picks
- * one of the four verdict enums and writes the one-sentence verdict line.
- * Per the brief: Claude/Ministral is the phrasing layer, never the decision
- * layer — `lib/aggregate.ts` always has a rule-based fallback ready.
+ * Verdict-line synthesis via OpenRouter — single-user personal deploy, zero
+ * budget, so this deliberately runs on a free-tier model, not a paid one.
+ * `google/gemma-4-26b-a4b-it:free` confirmed live: clean JSON output,
+ * `finish_reason: "stop"` (not truncated), no hidden reasoning-token
+ * burn. Reasoning models (e.g. gpt-oss-20b:free) were tried and rejected —
+ * they spend the entire token budget on chain-of-thought before ever
+ * emitting content, so `max_tokens: 75` returns null every time.
+ *
+ * This ONLY writes the one-sentence phrasing. The verdict enum itself is
+ * always rule-based (see `ruleBasedVerdict` in aggregate.ts) — confirmed
+ * live that this model can write an accurate sentence while mislabeling
+ * severity (called a scan "clean" despite a flagged LP-lock finding), so
+ * its judgment on severity is never trusted, only its prose.
  */
 
-import type { Finding, Verdict } from "./types";
+import type { Finding } from "./types";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const envModel = process.env.OPENROUTER_MODEL;
-const MODEL = !envModel || envModel === "mistralai/ministral-8b" ? "mistralai/ministral-8b-2512" : envModel;
+const MODEL = process.env.OPENROUTER_MODEL || "google/gemma-4-26b-a4b-it:free";
 
 export type SynthesisInput = { address: string; findings: Finding[] };
-export type SynthesisResult = { verdict: Verdict; verdict_line: string };
+export type SynthesisResult = { verdict_line: string };
 
-const VALID_VERDICTS = new Set<Verdict>(["high_risk", "mixed", "clean", "insufficient_data"]);
-
-const SYSTEM_PROMPT = `You write one-line risk verdicts for a Solana wallet/token scanner from structured findings.
+const SYSTEM_PROMPT = `You write one-line risk summaries for a Solana wallet/token scanner from structured findings.
 Rules:
-- Base the verdict ONLY on the findings given. Never invent data.
-- Choose exactly one verdict: "high_risk" | "mixed" | "clean" | "insufficient_data".
-- "insufficient_data" is a real, honest verdict — use it when findings are thin or mostly "unavailable", not as a failure.
-- The verdict_line states what was FOUND, never what to do. Never write "buy", "sell", "safe to ape", "will rug", or any prediction/recommendation.
-- verdict_line must be a single sentence, under 20 words, no hedging filler like "it appears that".
-- Output strict JSON only, no markdown fences, no preamble: {"verdict": string, "verdict_line": string}`;
+- Base the summary ONLY on the findings given. Never invent data.
+- Mention every flagged finding — never omit a flag to sound more positive than the findings support.
+- State what was FOUND, never what to do. Never write "buy", "sell", "safe to ape", "will rug", or any prediction/recommendation.
+- Must be a single sentence, under 20 words, no hedging filler like "it appears that".
+- Output strict JSON only, no markdown fences, no preamble: {"verdict_line": string}`;
 
 export async function synthesizeVerdict(input: SynthesisInput): Promise<SynthesisResult> {
   const key = process.env.OPENROUTER_API_KEY;
@@ -60,7 +63,7 @@ export async function synthesizeVerdict(input: SynthesisInput): Promise<Synthesi
   // Strip stray markdown fences some models add despite instructions.
   const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
   const parsed = JSON.parse(cleaned) as SynthesisResult;
-  if (!parsed.verdict_line || !VALID_VERDICTS.has(parsed.verdict)) {
+  if (!parsed.verdict_line) {
     throw new Error("Malformed synthesis result");
   }
   return parsed;

@@ -311,13 +311,17 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
 
   yield { type: "findings", findings: findings.slice(arkhamFindingsStart) };
 
-  // ---- verdict: Ministral synthesis with rule-based fallback ----
+  // ---- verdict: `verdict` enum is ALWAYS rule-based, never trusted from
+  // the LLM — confirmed live that a small free model can write an
+  // accurate sentence ("mint/freeze revoked, no rug history") while
+  // mislabeling the enum itself "clean" despite a flagged LP-lock finding.
+  // Synthesis only ever supplies the phrasing (verdict_line), per the
+  // brief: it's the phrasing layer, never the decision layer.
   const fallback = ruleBasedVerdict(findings);
-  let verdict: Verdict = fallback.verdict;
+  const verdict: Verdict = fallback.verdict;
   let verdict_line = fallback.verdict_line;
   try {
     const synthesis = await synthesizeVerdict({ address, findings });
-    verdict = synthesis.verdict;
     verdict_line = synthesis.verdict_line;
   } catch (err) {
     console.error("Synthesis failed, using rule-based fallback:", err);
