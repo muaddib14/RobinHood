@@ -112,7 +112,10 @@ export async function getDeployerHistory(address: string, sampleSize = 40): Prom
   return { scannedTx: sigs.length, priorMints: [...priorMints] };
 }
 
-export type FundingHop = { hop: number; address: string };
+// amountSol/ts/sig describe the transfer FROM `address` INTO the previous
+// node in the chain (the address this hop funded) — i.e. this hop object
+// doubles as the graph edge into its child, not just a node.
+export type FundingHop = { hop: number; address: string; amountSol: number; ts: number; sig: string };
 export type FundingTrace = {
   hops: FundingHop[];
   terminated: "no_source" | "hop_limit" | "trail_found";
@@ -125,41 +128,68 @@ type NativeTransferIx = {
   parsed?: { type?: string; info?: { source?: string; destination?: string; lamports?: number } };
 };
 
+type TxWithInner = {
+  blockTime?: number | null;
+  transaction?: { message?: { instructions?: NativeTransferIx[] } };
+  meta?: { innerInstructions?: Array<{ instructions?: NativeTransferIx[] }> };
+};
+
+// Top-level instructions only catch a bare wallet-to-wallet SOL transfer.
+// Many real wallets are first funded as a side effect of something else —
+// a DEX swap, a launchpad CPI — where the actual System Program `transfer`
+// is invoked *by another program*, which only shows up in
+// meta.innerInstructions, never in the top-level instruction list.
+function allTransferIxs(tx: TxWithInner | null): NativeTransferIx[] {
+  const topLevel = tx?.transaction?.message?.instructions ?? [];
+  const inner = (tx?.meta?.innerInstructions ?? []).flatMap((group) => group.instructions ?? []);
+  return [...topLevel, ...inner];
+}
+
+type FirstFunder = { source: string; lamports: number; blockTime: number; signature: string };
+
 /** Earliest inbound native SOL transfer into `address` within a recent window — that's who funded it. */
-async function findFirstFunder(address: string): Promise<string | null> {
-  // Bounded window, not the full 1000-signature history: this is "earliest
-  // funder within recent history", not a guarantee for very old wallets.
+async function findFirstFunder(address: string): Promise<FirstFunder | null> {
+  // getSignaturesForAddress returns newest-first. The funding transaction is
+  // by definition the wallet's OLDEST activity, so a naive `limit: 60` only
+  // samples the most recent 60 txs and — for any wallet with more than 60
+  // transactions ever — never sees the funding tx at all. Fetch up to 1000
+  // (RPC max, same bound as getWalletAge) and take the oldest slice of that
+  // batch instead. Still bounded — a wallet with >1000 lifetime txs can
+  // still miss its true origin — but this is "earliest funder we can see",
+  // not a guarantee for very old high-activity wallets.
   // Fetched concurrently (bounded pool) rather than one-by-one from the
   // back — sequential lookups over hundreds of signatures were the actual
   // cause of multi-minute hangs before this fix.
   const SAMPLE = 60;
   const CONCURRENCY = 10;
-  const sigs = await rpc<Array<{ signature: string }>>("getSignaturesForAddress", [address, { limit: SAMPLE }]);
-  if (!sigs.length) return null;
+  const allSigs = await rpc<Array<{ signature: string }>>("getSignaturesForAddress", [address, { limit: 1000 }]);
+  if (!allSigs.length) return null;
+  const sigs = allSigs.slice(-SAMPLE);
 
-  let earliest: { blockTime: number; source: string } | null = null;
+  let earliest: FirstFunder & { blockTime: number } | null = null;
   for (let i = 0; i < sigs.length; i += CONCURRENCY) {
     const chunk = sigs.slice(i, i + CONCURRENCY);
     const txs = await Promise.all(
       chunk.map((s) =>
-        rpc<{ blockTime?: number | null; transaction?: { message?: { instructions?: NativeTransferIx[] } } } | null>(
-          "getTransaction",
-          [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }]
-        ).catch(() => null)
+        rpc<TxWithInner | null>("getTransaction", [
+          s.signature,
+          { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 },
+        ]).then((tx) => ({ tx, signature: s.signature })).catch(() => ({ tx: null, signature: s.signature }))
       )
     );
-    for (const tx of txs) {
-      const instructions = tx?.transaction?.message?.instructions ?? [];
-      for (const ix of instructions) {
+    for (const { tx, signature } of txs) {
+      for (const ix of allTransferIxs(tx)) {
         if (ix.program !== "system" || ix.parsed?.type !== "transfer") continue;
         const info = ix.parsed.info;
         if (info?.destination !== address || !info.source || info.source === address) continue;
         const blockTime = tx?.blockTime ?? Infinity;
-        if (!earliest || blockTime < earliest.blockTime) earliest = { blockTime, source: info.source };
+        if (!earliest || blockTime < earliest.blockTime) {
+          earliest = { source: info.source, lamports: info.lamports ?? 0, blockTime, signature };
+        }
       }
     }
   }
-  return earliest?.source ?? null;
+  return earliest;
 }
 
 /**
@@ -183,8 +213,14 @@ export async function getFundingTrace(address: string, maxHops = 5): Promise<Fun
       terminated = "no_source";
       break;
     }
-    hops.push({ hop: i, address: funder });
-    current = funder;
+    hops.push({
+      hop: i,
+      address: funder.source,
+      amountSol: funder.lamports / 1_000_000_000,
+      ts: funder.blockTime * 1000,
+      sig: funder.signature,
+    });
+    current = funder.source;
     if (i === maxHops) terminated = "trail_found";
   }
 

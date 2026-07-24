@@ -79,6 +79,12 @@ Since Arkham is already fully integrated (§2.1) and Claude was swapped for Open
 
 **Known pre-existing bug, fixed 2026-07-24:** `lib/aggregate.ts` had two unguarded nested optional-chains (`report?.topHolders.length`, `market?.lp.lpLockedPct`) that threw when RugCheck returned a report with a null sub-field — crashed the whole scan with a 502, not caught by the "scan can't fail" fallback because it happened outside the synthesis step. Both now null-guarded properly.
 
+**Two more pre-existing bugs found and fixed 2026-07-24 (`lib/solana.ts:findFirstFunder`), while wiring up real per-edge data for a future flow-graph feature (§8):**
+1. `FundingHop` only ever stored `{hop, address}` — the transfer amount/timestamp/signature were read off the RPC response but discarded, not persisted. Now stored as `amountSol`/`ts`/`sig` on each hop.
+2. **Bigger bug:** `findFirstFunder` sampled the 60 *newest* signatures (`getSignaturesForAddress(..., {limit: 60})`), but the funding transaction is by definition a wallet's *oldest* activity. For any wallet with more than 60 lifetime transactions, the real funding tx was **never in the sampled window at all** — confirmed empirically: every test address (BONK token, WIF token, BONK deployer wallet) returned `hops: []` / `terminated: "no_source"` before the fix, despite raw RPC showing the destination-matching transfer existed. Fixed by fetching up to 1000 signatures (RPC max, same bound as `getWalletAge`) and taking the oldest 60 of that batch, not the newest. Still bounded — a wallet with >1000 lifetime txs can still miss its true origin — but now it's actually looking in the right direction.
+3. Also fixed while in there: `findFirstFunder` only scanned top-level instructions, missing transfers issued via CPI (a DEX swap or launchpad program invoking System Program `transfer` internally) — now also scans `meta.innerInstructions`.
+4. **Caveat, not yet addressed:** "earliest inbound transfer" has no minimum-amount filter, so a dust/rent transaction (observed: `amountSol: 1e-9`, i.e. 1 lamport) can win the "earliest" slot ahead of the actual meaningful funding transfer if it happened first chronologically. Worth a minimum-lamports threshold before this feeds a user-facing amount figure.
+
 ---
 
 ## 4. M3 — Retention (auth, watchlist, Telegram alerts)
@@ -132,3 +138,17 @@ If a future request from the owner conflicts with this section, flag it back to 
 - Neon project exists (`neondb`, created 2026-07-24), `scans` and `watchlist` tables migrated. Confirm connection is still live before writing further M3 schema.
 - `watchlist` is IP-tagged, not user-tagged (§2.5) — don't build M3 auth as if the table doesn't exist yet.
 - Re-run `npm run build && npm run lint` before considering any milestone item done. No exceptions carried over from M1's own verification standard.
+
+---
+
+## 8. Flow visualizer / transaction history (owner-requested 2026-07-24, backend groundwork only)
+
+Owner shared a static HTML/JS mockup — an interactive funding-flow graph (draggable nodes, tooltips, timeline brush) plus a sortable transaction table, styled to match the existing terminal aesthetic. Not in the original brief. Placement not yet decided ("penempatan terserah kamu" — owner left it open, likely a tab/section on the scan result or a dedicated `/scan/[id]/graph` route reusing the share-page pattern from §3).
+
+**Status: backend-only, no UI built yet.** Owner chose backend-first (capture real data before building UI on top of mock data) — see §3's "two more pre-existing bugs" note above for what got fixed in `lib/solana.ts` to make this viable (edge amount/timestamp/signature capture, oldest-window sampling fix, inner-instruction/CPI detection).
+
+**Still needed before UI work:**
+- A minimum-lamports threshold on "earliest inbound transfer" so dust/rent transactions don't win the earliest-hop slot (see caveat in §3).
+- An API surface returning nodes+edges in the shape the graph needs (the mockup's own `NODES`/`EDGES` arrays are the reference shape) — `funding_trace`'s `hops` array only covers the backward-walk chain, not the full multi-directional graph the mockup shows (CEX → origin → hops → deployer → top holders → token, with inflow AND outflow edges at the token layer). Building that full shape means combining `funding_trace` hops with `smart_money` holder data and possibly new RPC calls for token-layer in/out transfers — not just exposing what already exists.
+- The mockup is vanilla JS + hand-rolled SVG (drag, tooltip positioning, timeline brush all custom) — porting to a React/Next client component, not a straight copy-paste, since this app has no vanilla-JS pages.
+- No USD conversion anywhere in this codebase (brief explicitly avoids fabricating figures without a real feed) — the mockup uses USD amounts; real data will need to either show SOL amounts instead (honest, no new dependency) or the owner needs to confirm a price-feed source is acceptable to add.
