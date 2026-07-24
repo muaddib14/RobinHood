@@ -4,7 +4,7 @@
  * Claude, Supabase, Chrome extension) plug in without re-shaping this.
  */
 
-export type Source = "gotham" | "arkham" | "solanafm" | "vybe";
+export type Source = "gotham" | "arkham" | "solanafm" | "vybe" | "goplus";
 
 export type Verdict = "high_risk" | "mixed" | "clean" | "insufficient_data";
 

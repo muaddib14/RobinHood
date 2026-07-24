@@ -11,7 +11,7 @@ import {
 } from "./arkham";
 import { getAccountLabel } from "./solanafm";
 import { getWalletLabel } from "./vybe";
-import { getFlaggedCreators } from "./goplus";
+import { getFlaggedCreators, getAddressFlags } from "./goplus";
 import { synthesizeVerdict } from "./openrouter";
 import type { Finding, ScanResult, Verdict } from "./types";
 
@@ -180,13 +180,14 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
 
   // ---- Layer 2: Arkham entity graph, isolated behind its own settle so a
   // slow/missing key never blocks Layer 1 from reaching the client first ----
-  const [intel, risk, counterparties, holders, fmLabel, vybeLabel] = await Promise.allSettled([
+  const [intel, risk, counterparties, holders, fmLabel, vybeLabel, addressFlags] = await Promise.allSettled([
     getAddressIntel(address),
     getRisk(address),
     getCounterparties(address),
     getTokenHolders("solana", address),
     getAccountLabel(address),
     getWalletLabel(address),
+    getAddressFlags(address),
   ]);
   const arkhamFindingsStart = findings.length;
 
@@ -230,14 +231,26 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
       data: { name, entityName, labels },
     });
   } else {
-    findings.push({
-      read: "entity_match",
-      label: "Entity match",
-      source: "arkham",
-      status: "unavailable",
-      summary: "Entity layer did not respond — no Arkham key, no SolanaFM/Vybe label found.",
-      data: {},
-    });
+    const flags = addressFlags.status === "fulfilled" ? addressFlags.value : { flagged: false, reasons: [] };
+    if (flags.flagged) {
+      findings.push({
+        read: "entity_match",
+        label: "Entity match",
+        source: "goplus",
+        status: "flag",
+        summary: `Address flagged by security scan: ${flags.reasons.map((r) => r.replace(/_/g, " ")).join(", ")}.`,
+        data: { reasons: flags.reasons },
+      });
+    } else {
+      findings.push({
+        read: "entity_match",
+        label: "Entity match",
+        source: "goplus",
+        status: "ok",
+        summary: "No entity label or security flag found across Arkham, SolanaFM, Vybe, or GoPlus.",
+        data: {},
+      });
+    }
   }
 
   if (risk.status === "fulfilled" && risk.value) {

@@ -13,6 +13,7 @@ const SOURCE_LABEL: Record<Finding["source"], string> = {
   arkham: "Arkham",
   solanafm: "SolanaFM",
   vybe: "Vybe",
+  goplus: "GoPlus",
 };
 
 function renderFinding(f: Finding, i: number) {

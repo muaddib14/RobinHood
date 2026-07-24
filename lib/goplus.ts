@@ -40,3 +40,37 @@ export async function getFlaggedCreators(mint: string): Promise<GoPlusCreatorFla
     .filter((c) => c.malicious_address === 1)
     .map((c) => ({ address: c.address, malicious: true }));
 }
+
+export type GoPlusAddressFlags = { flagged: boolean; reasons: string[] };
+
+const FLAG_FIELDS = [
+  "cybercrime",
+  "money_laundering",
+  "gas_abuse",
+  "financial_crime",
+  "darkweb_transactions",
+  "phishing_activities",
+  "fake_kyc",
+  "blacklist_doubt",
+  "stealing_attack",
+  "blackmail_activities",
+  "sanctioned",
+  "malicious_mining_activities",
+  "mixer",
+  "honeypot_related_address",
+] as const;
+
+/**
+ * Cross-chain malicious-address registry. Deliberately called WITHOUT
+ * chain_id — confirmed live that chain_id=solana returns a "system error"
+ * (code 5000) on this endpoint despite being listed as a valid enum value
+ * in the docs; omitting it returns real flag data instead. Base58 Solana
+ * addresses don't collide with EVM hex addresses, so cross-chain lookup
+ * is safe here.
+ */
+export async function getAddressFlags(address: string): Promise<GoPlusAddressFlags> {
+  const result = await goPlusFetch<Record<string, string>>(`/address_security/${address}`);
+  if (!result) return { flagged: false, reasons: [] };
+  const reasons = FLAG_FIELDS.filter((f) => result[f] === "1");
+  return { flagged: reasons.length > 0, reasons };
+}
