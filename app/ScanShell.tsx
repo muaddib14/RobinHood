@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Finding, ScanResult, FindingStatus } from "@/lib/types";
+import FundingGraph from "./FundingGraph";
 
 const PLACEHOLDER = "Paste a Solana token or wallet address";
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -65,6 +66,7 @@ export default function ScanShell() {
   const [stageIndex, setStageIndex] = useState(0);
   const [watchState, setWatchState] = useState<WatchState>("idle");
   const [shareState, setShareState] = useState<ShareState>("idle");
+  const [tab, setTab] = useState<"findings" | "graph">("findings");
   const stageTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
@@ -90,6 +92,7 @@ export default function ScanShell() {
     setStageIndex(0);
     setWatchState("idle");
     setShareState("idle");
+    setTab("findings");
     setState({ status: "loading", findings: [] });
     try {
       const res = await fetch("/api/scan", {
@@ -270,7 +273,29 @@ export default function ScanShell() {
               <strong>{state.result.verdict_line}</strong>
               <span className="time">Answered in {(state.result.answered_ms / 1000).toFixed(1)}s</span>
             </div>
-            {state.result.findings.map(renderFinding)}
+            <div style={{ display: "flex", gap: "8px", padding: "0 26px 10px" }}>
+              <button
+                type="button"
+                className={`src ${tab === "findings" ? "own" : ""}`}
+                style={{ cursor: "pointer", opacity: tab === "findings" ? 1 : 0.5 }}
+                onClick={() => setTab("findings")}
+              >
+                Findings
+              </button>
+              <button
+                type="button"
+                className={`src ${tab === "graph" ? "own" : ""}`}
+                style={{ cursor: "pointer", opacity: tab === "graph" ? 1 : 0.5 }}
+                onClick={() => setTab("graph")}
+              >
+                Flow graph
+              </button>
+            </div>
+            {tab === "findings" ? (
+              state.result.findings.map(renderFinding)
+            ) : (
+              <FundingGraph address={state.result.address} findings={state.result.findings} />
+            )}
             <p className="scan-footnote">
               Verdict: <em>{state.result.verdict.replace("_", " ")}</em>. {state.result.remaining_scans} free
               scans remaining today. Informational only — not financial advice.

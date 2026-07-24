@@ -1,33 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { getShare } from "@/lib/shares";
-import type { Finding, FindingStatus } from "@/lib/types";
-
-const STATUS_LABEL: Record<FindingStatus, string> = {
-  ok: "OK",
-  warn: "WARN",
-  flag: "FLAG",
-  unavailable: "N/A",
-};
-
-function renderFinding(f: Finding, i: number) {
-  return (
-    <div className="finding" key={i}>
-      <span className="f-label">
-        {f.label} <span style={{ opacity: 0.6 }}>[{STATUS_LABEL[f.status]}]</span>
-      </span>
-      <span
-        className="f-value"
-        dangerouslySetInnerHTML={{
-          __html: f.status === "unavailable" ? `<i>${f.summary}</i>` : f.summary,
-        }}
-      />
-      <span className={`src ${f.source === "gotham" ? "own" : "arkham"}`}>
-        {f.source === "gotham" ? "Gotham engine" : "Arkham"}
-      </span>
-    </div>
-  );
-}
+import ResultTabs from "./ResultTabs";
 
 function Nav() {
   return (
@@ -94,7 +68,7 @@ export default async function SharedScanPage({ params }: { params: Promise<{ id:
                   <strong>{result.verdict_line}</strong>
                   <span className="time">Scanned {new Date(result.scanned_at).toLocaleString()}</span>
                 </div>
-                {result.findings.map(renderFinding)}
+                <ResultTabs address={result.address} findings={result.findings} />
               </>
             )}
             <p className="scan-footnote">
