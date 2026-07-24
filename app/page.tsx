@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Reveal from "./Reveal";
 import ScanShell from "./ScanShell";
-import FlowVisualizer from "./FlowVisualizer";
+
 export default function Home() {
   return (
     <>
@@ -111,7 +111,6 @@ export default function Home() {
         </div>
 
         <ScanShell />
-        <FlowVisualizer />
       </section>
 
       {/* ============ COVERAGE TRIPTYCH ============ */}
