@@ -66,8 +66,15 @@ export default function FlowVisualizer({ address, findings }: { address: string;
   const { nodes, edges, layerNames } = useMemo(() => {
     if (!hops.length) return { nodes: [] as FlowNode[], edges: [] as FlowEdge[], layerNames: [] as string[] };
     const chain = [...hops].reverse(); // oldest funder first
+    // Node id is `${address}-hop${i}`, NOT the bare address — the same
+    // wallet can legitimately appear at two different hops (oscillating
+    // fund flow through a market maker/self-controlled hot wallet),
+    // confirmed live: React threw a duplicate-key error on exactly this.
+    // `addr` stays the real address for display/search/tooltip.
+    const chainId = (i: number) => `${chain[i].address}-hop${i}`;
+    const scannedId = `${address}-scanned`;
     const ns: FlowNode[] = chain.map((h, i) => ({
-      id: h.address,
+      id: chainId(i),
       label: i === 0 ? "Origin" : `Hop ${i}`,
       sub: short(h.address),
       addr: h.address,
@@ -76,7 +83,7 @@ export default function FlowVisualizer({ address, findings }: { address: string;
       flagged: false,
     }));
     ns.push({
-      id: address,
+      id: scannedId,
       label: "Scanned",
       sub: short(address),
       addr: address,
@@ -85,8 +92,8 @@ export default function FlowVisualizer({ address, findings }: { address: string;
       flagged: false,
     });
     const es: FlowEdge[] = chain.map((h, i) => ({
-      from: h.address,
-      to: i + 1 < chain.length ? chain[i + 1].address : address,
+      from: chainId(i),
+      to: i + 1 < chain.length ? chainId(i + 1) : scannedId,
       sol: h.amountSol,
       ts: h.ts,
       sig: h.sig,
