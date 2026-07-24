@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Finding, ScanResult, FindingStatus } from "@/lib/types";
-import FundingGraph from "./FundingGraph";
+import FlowVisualizer from "./FlowVisualizer";
 
 const PLACEHOLDER = "Paste a Solana token or wallet address";
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -39,6 +39,13 @@ type State =
   | { status: "error"; kind: "invalid" | "rate_limited" | "failed"; message: string }
   | { status: "done"; result: ScanResponse };
 
+const SOURCE_LABEL: Record<Finding["source"], string> = {
+  gotham: "Gotham engine",
+  arkham: "Arkham",
+  solanafm: "SolanaFM",
+  vybe: "Vybe",
+};
+
 function renderFinding(f: Finding, i: number) {
   return (
     <div className="finding" key={i}>
@@ -51,9 +58,7 @@ function renderFinding(f: Finding, i: number) {
           __html: f.status === "unavailable" ? `<i>${f.summary}</i>` : f.summary,
         }}
       />
-      <span className={`src ${f.source === "gotham" ? "own" : "arkham"}`}>
-        {f.source === "gotham" ? "Gotham engine" : "Arkham"}
-      </span>
+      <span className={`src ${f.source === "gotham" ? "own" : "arkham"}`}>{SOURCE_LABEL[f.source]}</span>
     </div>
   );
 }
@@ -258,24 +263,20 @@ export default function ScanShell() {
           <p className="scan-footnote">Scan failed: {state.message}</p>
         )}
 
-        {state.status === "done" && state.result.verdict === "insufficient_data" && (
-          <p className="scan-footnote">
-            This address has too little history for a meaningful read. Check back in an hour.
-          </p>
-        )}
-
-        {state.status === "done" && state.result.verdict !== "insufficient_data" && (
+        {state.status === "done" && (
           <>
+            {state.result.verdict === "insufficient_data" && (
+              <p className="scan-footnote">
+                This address has too little history for a confident verdict — showing what was found anyway.
+              </p>
+            )}
             <div className="verdict">
               <span className="verdict-dot" aria-hidden="true"></span>
               <strong>{state.result.verdict_line}</strong>
               <span className="time">Answered in {(state.result.answered_ms / 1000).toFixed(1)}s</span>
             </div>
             {state.result.findings.map(renderFinding)}
-            <p className="scan-footnote" style={{ padding: "16px 26px 0", opacity: 0.7 }}>
-              Funding flow
-            </p>
-            <FundingGraph address={state.result.address} findings={state.result.findings} />
+            <FlowVisualizer address={state.result.address} findings={state.result.findings} />
             <p className="scan-footnote">
               Verdict: <em>{state.result.verdict.replace("_", " ")}</em>. {state.result.remaining_scans} free
               scans remaining today. Informational only — not financial advice.

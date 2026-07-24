@@ -57,20 +57,18 @@ export default async function SharedScanPage({ params }: { params: Promise<{ id:
             <span style={{ opacity: 0.8, wordBreak: "break-all" }}>{result.address}</span>
           </div>
           <div className="scan-body">
-            {result.verdict === "insufficient_data" ? (
+            {result.verdict === "insufficient_data" && (
               <p className="scan-footnote">
-                This address had too little history for a meaningful read at scan time.
+                This address had too little history for a confident verdict at scan time — showing what was found
+                anyway.
               </p>
-            ) : (
-              <>
-                <div className="verdict">
-                  <span className="verdict-dot" aria-hidden="true"></span>
-                  <strong>{result.verdict_line}</strong>
-                  <span className="time">Scanned {new Date(result.scanned_at).toLocaleString()}</span>
-                </div>
-                <ScanResultView address={result.address} findings={result.findings} />
-              </>
             )}
+            <div className="verdict">
+              <span className="verdict-dot" aria-hidden="true"></span>
+              <strong>{result.verdict_line}</strong>
+              <span className="time">Scanned {new Date(result.scanned_at).toLocaleString()}</span>
+            </div>
+            <ScanResultView address={result.address} findings={result.findings} />
             <p className="scan-footnote">
               Verdict: <em>{result.verdict.replace("_", " ")}</em>. Snapshot from scan time — on-chain state may
               have changed since. Informational only — not financial advice.

@@ -9,6 +9,8 @@ import {
   getRiskBatch,
   createExitWatchAlert,
 } from "./arkham";
+import { getAccountLabel } from "./solanafm";
+import { getWalletLabel } from "./vybe";
 import { synthesizeVerdict } from "./openrouter";
 import type { Finding, ScanResult, Verdict } from "./types";
 
@@ -166,15 +168,19 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
 
   // ---- Layer 2: Arkham entity graph, isolated behind its own settle so a
   // slow/missing key never blocks Layer 1 from reaching the client first ----
-  const [intel, risk, counterparties, holders] = await Promise.allSettled([
+  const [intel, risk, counterparties, holders, fmLabel, vybeLabel] = await Promise.allSettled([
     getAddressIntel(address),
     getRisk(address),
     getCounterparties(address),
     getTokenHolders("solana", address),
+    getAccountLabel(address),
+    getWalletLabel(address),
   ]);
   const arkhamFindingsStart = findings.length;
 
-  // ---- entity_match read (Arkham-only; unavailable without a key, per brief) ----
+  // ---- entity_match read: Arkham first (richer), SolanaFM as a free
+  // fallback when there's no Arkham key (§2.1) — never blended, each
+  // finding states which source it actually came from ----
   if (intel.status === "fulfilled" && intel.value) {
     const name = intel.value.arkhamEntity?.name ?? intel.value.arkhamLabel?.name;
     findings.push({
@@ -185,13 +191,39 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
       summary: name ? `Matches known entity: ${name}.` : "Address has Arkham data but no entity label yet.",
       data: { entity: intel.value.arkhamEntity, label: intel.value.arkhamLabel },
     });
+  } else if (fmLabel.status === "fulfilled" && fmLabel.value) {
+    const { friendlyName, category, tags } = fmLabel.value;
+    const flagged = tags.some((t) => /scam|hack|exploit|drain/i.test(t));
+    findings.push({
+      read: "entity_match",
+      label: "Entity match",
+      source: "solanafm",
+      status: flagged ? "flag" : friendlyName ? "warn" : "ok",
+      summary: friendlyName
+        ? `Matches known entity: ${friendlyName}${category ? ` (${category})` : ""}${tags.length ? ` — tags: ${tags.join(", ")}` : ""}.`
+        : `Tagged: ${tags.join(", ")}.`,
+      data: { friendlyName, category, tags },
+    });
+  } else if (vybeLabel.status === "fulfilled" && vybeLabel.value) {
+    const { name, entityName, labels } = vybeLabel.value;
+    const display = entityName ?? name;
+    findings.push({
+      read: "entity_match",
+      label: "Entity match",
+      source: "vybe",
+      status: display ? "warn" : "ok",
+      summary: display
+        ? `Matches known entity: ${display}${labels.length ? ` — tags: ${labels.join(", ")}` : ""}.`
+        : `Tagged: ${labels.join(", ")}.`,
+      data: { name, entityName, labels },
+    });
   } else {
     findings.push({
       read: "entity_match",
       label: "Entity match",
       source: "arkham",
       status: "unavailable",
-      summary: "Entity layer did not respond — no Arkham key configured or lookup failed.",
+      summary: "Entity layer did not respond — no Arkham key, no SolanaFM/Vybe label found.",
       data: {},
     });
   }

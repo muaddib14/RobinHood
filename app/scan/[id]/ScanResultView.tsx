@@ -1,4 +1,4 @@
-import FundingGraph from "../../FundingGraph";
+import FlowVisualizer from "../../FlowVisualizer";
 import type { Finding, FindingStatus } from "@/lib/types";
 
 const STATUS_LABEL: Record<FindingStatus, string> = {
@@ -6,6 +6,13 @@ const STATUS_LABEL: Record<FindingStatus, string> = {
   warn: "WARN",
   flag: "FLAG",
   unavailable: "N/A",
+};
+
+const SOURCE_LABEL: Record<Finding["source"], string> = {
+  gotham: "Gotham engine",
+  arkham: "Arkham",
+  solanafm: "SolanaFM",
+  vybe: "Vybe",
 };
 
 function renderFinding(f: Finding, i: number) {
@@ -20,9 +27,7 @@ function renderFinding(f: Finding, i: number) {
           __html: f.status === "unavailable" ? `<i>${f.summary}</i>` : f.summary,
         }}
       />
-      <span className={`src ${f.source === "gotham" ? "own" : "arkham"}`}>
-        {f.source === "gotham" ? "Gotham engine" : "Arkham"}
-      </span>
+      <span className={`src ${f.source === "gotham" ? "own" : "arkham"}`}>{SOURCE_LABEL[f.source]}</span>
     </div>
   );
 }
@@ -31,10 +36,7 @@ export default function ScanResultView({ address, findings }: { address: string;
   return (
     <>
       {findings.map(renderFinding)}
-      <p className="scan-footnote" style={{ padding: "16px 26px 0", opacity: 0.7 }}>
-        Funding flow
-      </p>
-      <FundingGraph address={address} findings={findings} />
+      <FlowVisualizer address={address} findings={findings} />
     </>
   );
 }
