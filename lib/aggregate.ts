@@ -1,6 +1,6 @@
-import { getWalletAge, getMintChecks, getDeployerHistory } from "./solana";
+import { getWalletAge, getMintChecks, getDeployerHistory, getFundingTrace } from "./solana";
 import { getLpLockStatus } from "./raydium";
-import { getTokenReport, topMarket } from "./rugcheck";
+import { getTokenReport, topMarket, classifyMintOutcome } from "./rugcheck";
 import {
   getAddressIntel,
   getRisk,
@@ -10,36 +10,36 @@ import {
   createExitWatchAlert,
 } from "./arkham";
 import { synthesizeVerdict } from "./openrouter";
+import type { Finding, ScanResult, Verdict } from "./types";
 
-export type Finding = { label: string; value: string; source: "own" | "arkham" };
+/**
+ * Rule-based verdict — the deterministic floor beneath Claude/OpenRouter
+ * synthesis. Per the brief: synthesis is the phrasing layer, never the
+ * decision layer, so a scan must never fail because a model call failed.
+ */
+export function ruleBasedVerdict(findings: Finding[]): { verdict: Verdict; verdict_line: string } {
+  const flagged = findings.filter((f) => f.status === "flag").length;
+  const ok = findings.filter((f) => f.status === "ok").length;
 
-export type ScanResult = {
-  address: string;
-  verdict: string;
-  confidence: "low" | "medium" | "high";
-  elapsedMs: number;
-  findings: Finding[];
-  exitWatch: { armed: boolean; alertId: number | null };
-};
-
-function ageLabel(ms: number | null): string {
-  if (ms === null) return "unknown (no on-chain history found)";
-  const hours = ms / 3_600_000;
-  if (hours < 1) return `${Math.round(ms / 60_000)} minutes old`;
-  if (hours < 24) return `${hours.toFixed(1)} hours old`;
-  return `${Math.round(hours / 24)} days old`;
+  if (flagged >= 2) {
+    return { verdict: "high_risk", verdict_line: `${flagged} of ${findings.length} reads flagged risk signals.` };
+  }
+  if (flagged === 1) {
+    return { verdict: "mixed", verdict_line: "One read flagged a risk signal; the rest are clean or unavailable." };
+  }
+  if (flagged === 0 && ok >= 4) {
+    return { verdict: "clean", verdict_line: `${ok} of ${findings.length} reads came back clean, none flagged.` };
+  }
+  return { verdict: "insufficient_data", verdict_line: "Too little history across sources for a confident read." };
 }
 
 /**
  * One scan = parallel fan-out to every source, degrade gracefully per-source.
- * Two tiers, both optional:
- *  - RugCheck (free, no key) covers token-safety signals Arkham would
- *    otherwise gate behind a paid plan — deployer, mint/freeze, LP lock,
- *    holder concentration.
- *  - Arkham (needs ARKHAM_API_KEY) adds the entity graph + smart-money +
- *    exit-watch layer on top, when/if a key is configured. Its absence
- *    never blocks a scan — Promise.allSettled already isolates every
- *    Arkham call, so an unset key just means those findings don't appear.
+ * Two tiers, both optional beyond the Gotham engine:
+ *  - RugCheck (free, no key) covers token-safety signals.
+ *  - Arkham (needs ARKHAM_API_KEY) adds the entity graph on top, when/if a
+ *    key is configured. Its absence never blocks a scan — every Arkham call
+ *    is isolated behind Promise.allSettled and reported as `unavailable`.
  */
 export async function scanAddress(address: string): Promise<ScanResult> {
   const started = Date.now();
@@ -47,15 +47,17 @@ export async function scanAddress(address: string): Promise<ScanResult> {
 
   const reportResult = await Promise.allSettled([getTokenReport(address)]);
   const report = reportResult[0].status === "fulfilled" ? reportResult[0].value : null;
+  const kind: ScanResult["kind"] = report ? "token" : "wallet";
 
   // If RugCheck knows this as a token, the deployer is its creator, not the
-  // mint address itself — every deployer-scoped lookup below should target that.
+  // mint address itself — every deployer-scoped lookup below targets that.
   const deployerAddress = report?.creator ?? address;
 
-  const [age, deployerHistory, mintFallback, lpFallback, intel, risk, counterparties, holders] =
+  const [age, deployerHistory, fundingTrace, mintFallback, lpFallback, intel, risk, counterparties, holders] =
     await Promise.allSettled([
       getWalletAge(deployerAddress),
       getDeployerHistory(deployerAddress),
+      getFundingTrace(deployerAddress),
       report ? Promise.resolve(null) : getMintChecks(address),
       report ? Promise.resolve(null) : getLpLockStatus(address),
       getAddressIntel(address),
@@ -64,106 +66,117 @@ export async function scanAddress(address: string): Promise<ScanResult> {
       getTokenHolders("solana", address),
     ]);
 
-  if (age.status === "fulfilled") {
+  // ---- deployer read ----
+  if (age.status === "fulfilled" && deployerHistory.status === "fulfilled") {
+    const { priorMints, scannedTx } = deployerHistory.value;
+    const outcomes = await Promise.all(priorMints.slice(0, 5).map((m) => classifyMintOutcome(m)));
+    const ruggedCount = outcomes.filter((o) => o === "rugged").length;
+    const status: Finding["status"] =
+      age.value.txCount === 0 ? "unavailable" : ruggedCount >= 2 ? "flag" : ruggedCount === 1 ? "warn" : "ok";
     findings.push({
-      label: "Deployer age",
-      value: `${report ? "Deployer wallet" : "Address"} is ${ageLabel(age.value.ageMs)}, ${age.value.txCount} known transactions.`,
-      source: "own",
+      read: "deployer",
+      label: "Deployer",
+      source: "gotham",
+      status,
+      summary:
+        age.value.txCount === 0
+          ? "Deployer wallet has no on-chain history yet."
+          : `Deployer wallet is <b>${Math.round((age.value.ageMs ?? 0) / 3_600_000)}h old</b>; ${ruggedCount} of ${priorMints.length} prior mints (last ${scannedTx} tx) rugged.`,
+      data: { ageMs: age.value.ageMs, txCount: age.value.txCount, priorMints, ruggedCount, scannedTx },
     });
   }
 
-  if (deployerHistory.status === "fulfilled") {
-    const { scannedTx, priorMints } = deployerHistory.value;
-    if (scannedTx > 0) {
-      findings.push({
-        label: "Deployer history",
-        value:
-          priorMints.length > 0
-            ? `Found ${priorMints.length} prior mint(s) deployed by this wallet in its last ${scannedTx} transactions.`
-            : `No prior mint deployments found in this wallet's last ${scannedTx} transactions.`,
-        source: "own",
-      });
-    }
+  // ---- funding_trace read (the most important one per the brief) ----
+  if (fundingTrace.status === "fulfilled") {
+    const { hops, terminated, ruggedFunderCount, sampledRecipients } = fundingTrace.value;
+    const status: Finding["status"] =
+      hops.length === 0
+        ? "unavailable"
+        : ruggedFunderCount >= 3
+          ? "flag"
+          : ruggedFunderCount >= 1
+            ? "warn"
+            : "ok";
+    findings.push({
+      read: "funding_trace",
+      label: "Funding trace",
+      source: "gotham",
+      status,
+      summary:
+        hops.length === 0
+          ? "No inbound funding transfer found — funding trail could not be traced."
+          : `Traced ${hops.length} hop(s) upstream (${terminated.replace("_", " ")}). Immediate funder's other transfers: ${ruggedFunderCount} of ${sampledRecipients} sampled recipients later rugged.`,
+      data: { hops, terminated, ruggedFunderCount, sampledRecipients },
+    });
   }
 
+  // ---- token_checks read ----
   if (report) {
-    // ---- Token path: RugCheck has this mint indexed. ----
-    findings.push({
-      label: "Token checks",
-      value: `Mint authority ${report.token.mintAuthority ? "ACTIVE" : "revoked"} · freeze authority ${
-        report.token.freezeAuthority ? "ACTIVE" : "revoked"
-      }.`,
-      source: "own",
-    });
-
+    const mintActive = !!report.token.mintAuthority;
+    const freezeActive = !!report.token.freezeAuthority;
     const market = topMarket(report);
-    if (market) {
-      const { lpLockedPct, lpLockedUSD, baseUSD, quoteUSD } = market.lp;
-      findings.push({
-        label: "LP lock",
-        value: `Top pool (${market.marketType}) has $${Math.round(baseUSD + quoteUSD).toLocaleString()} liquidity, ${lpLockedPct.toFixed(
-          1
-        )}% locked ($${Math.round(lpLockedUSD).toLocaleString()})${lpLockedPct < 50 ? " — most liquidity is still pullable" : ""}.`,
-        source: "own",
-      });
-    }
-
-    if (report.topHolders.length) {
-      const insiders = report.topHolders.filter((h) => h.insider).length;
-      const topPct = report.topHolders[0]?.pct ?? 0;
-      findings.push({
-        label: "Holder concentration",
-        value: `Top holder owns ${topPct.toFixed(1)}% of supply; ${insiders} of top ${report.topHolders.length} holders flagged as insider wallets.`,
-        source: "own",
-      });
-    }
-
-    if (report.risks.length) {
-      const names = report.risks.map((r) => r.name).join(", ");
-      findings.push({
-        label: "Risk signals",
-        value: `RugCheck score ${report.score_normalised}/100 (higher = riskier). Flags: ${names}.`,
-        source: "own",
-      });
-    }
-  } else {
-    // ---- Wallet path: not a mint RugCheck knows about — fall back to raw RPC. ----
-    if (mintFallback.status === "fulfilled" && mintFallback.value?.isMint) {
-      findings.push({
-        label: "Token checks",
-        value: `Mint authority ${mintFallback.value.mintAuthorityRevoked ? "revoked" : "ACTIVE"} · freeze authority ${
-          mintFallback.value.freezeAuthorityRevoked ? "revoked" : "ACTIVE"
-        }.`,
-        source: "own",
-      });
-    }
-    if (lpFallback.status === "fulfilled" && lpFallback.value?.found) {
-      const { burnPercent, tvl } = lpFallback.value;
-      findings.push({
-        label: "LP lock",
-        value: `Top pool has $${Math.round(tvl).toLocaleString()} TVL, ${burnPercent.toFixed(1)}% of LP supply burned.`,
-        source: "own",
-      });
-    }
+    const lpLockedPct = market?.lp.lpLockedPct ?? 0;
+    const status: Finding["status"] = mintActive || lpLockedPct < 20 ? "flag" : freezeActive ? "warn" : "ok";
+    findings.push({
+      read: "token_checks",
+      label: "Token checks",
+      source: "gotham",
+      status,
+      summary: `Mint authority ${mintActive ? "<b>ACTIVE</b>" : "revoked"} · freeze authority ${
+        freezeActive ? "<b>ACTIVE</b>" : "revoked"
+      } · LP ${lpLockedPct.toFixed(1)}% locked${market ? ` ($${Math.round(market.lp.baseUSD + market.lp.quoteUSD).toLocaleString()} pool)` : ""}.`,
+      data: { mintAuthority: report.token.mintAuthority, freezeAuthority: report.token.freezeAuthority, market },
+    });
+  } else if (mintFallback.status === "fulfilled" && mintFallback.value?.isMint) {
+    const mintActive = !mintFallback.value.mintAuthorityRevoked;
+    const freezeActive = !mintFallback.value.freezeAuthorityRevoked;
+    const lpFound = lpFallback.status === "fulfilled" && lpFallback.value?.found;
+    const burnPercent = lpFound ? (lpFallback as PromiseFulfilledResult<{ found: true; burnPercent: number; tvl: number }>).value.burnPercent : 0;
+    const status: Finding["status"] = mintActive || (lpFound && burnPercent < 20) ? "flag" : freezeActive ? "warn" : "ok";
+    findings.push({
+      read: "token_checks",
+      label: "Token checks",
+      source: "gotham",
+      status,
+      summary: `Mint authority ${mintActive ? "<b>ACTIVE</b>" : "revoked"} · freeze authority ${
+        freezeActive ? "<b>ACTIVE</b>" : "revoked"
+      }${lpFound ? ` · ${burnPercent.toFixed(1)}% LP burned` : ""}.`,
+      data: { mintFallback: mintFallback.value, lpFallback: lpFallback.status === "fulfilled" ? lpFallback.value : null },
+    });
   }
 
-  // ---- Arkham layer: entirely optional, only populates if ARKHAM_API_KEY is set. ----
+  // ---- entity_match read (Arkham-only; unavailable without a key, per brief) ----
   if (intel.status === "fulfilled" && intel.value) {
     const name = intel.value.arkhamEntity?.name ?? intel.value.arkhamLabel?.name;
     findings.push({
+      read: "entity_match",
       label: "Entity match",
-      value: name ? `Matches known entity: ${name}.` : "Address has Arkham data but no entity label yet.",
       source: "arkham",
+      status: name ? "warn" : "ok",
+      summary: name ? `Matches known entity: ${name}.` : "Address has Arkham data but no entity label yet.",
+      data: { entity: intel.value.arkhamEntity, label: intel.value.arkhamLabel },
+    });
+  } else {
+    findings.push({
+      read: "entity_match",
+      label: "Entity match",
+      source: "arkham",
+      status: "unavailable",
+      summary: "Entity layer did not respond — no Arkham key configured or lookup failed.",
+      data: {},
     });
   }
 
   if (risk.status === "fulfilled" && risk.value) {
     findings.push({
+      read: "entity_match",
       label: "Arkham risk score",
-      value: `Risk level: ${risk.value.risk_level} (score ${risk.value.max_score}/100)${
+      source: "arkham",
+      status: risk.value.risk_level === "HIGH" || risk.value.risk_level === "SEVERE" ? "flag" : "ok",
+      summary: `Risk level: ${risk.value.risk_level} (score ${risk.value.max_score}/100)${
         risk.value.greatest_risk_category ? `, driven by ${risk.value.greatest_risk_category} exposure` : ""
       }.`,
-      source: "arkham",
+      data: risk.value,
     });
   }
 
@@ -173,13 +186,38 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     if (top) {
       const name = top.address.arkhamEntity?.name ?? top.address.arkhamLabel?.name;
       findings.push({
-        label: "Funding trace",
-        value: name
+        read: "funding_trace",
+        label: "Arkham counterparty",
+        source: "arkham",
+        status: "ok",
+        summary: name
           ? `Top counterparty is a known entity: ${name} ($${Math.round(top.usd).toLocaleString()}).`
           : `Top counterparty is an unlabeled address ($${Math.round(top.usd).toLocaleString()}).`,
-        source: "arkham",
+        data: top,
       });
     }
+  }
+
+  // ---- smart_money read: Gotham half (holder concentration) + Arkham half (profitability) ----
+  const fundingAddresses = new Set(
+    fundingTrace.status === "fulfilled" ? fundingTrace.value.hops.map((h) => h.address) : []
+  );
+  if (report?.topHolders.length) {
+    const top1 = report.topHolders[0]?.pct ?? 0;
+    const top5 = report.topHolders.slice(0, 5).reduce((sum, h) => sum + h.pct, 0);
+    const top20 = report.topHolders.slice(0, 20).reduce((sum, h) => sum + h.pct, 0);
+    const deployerLinked = report.topHolders.filter((h) => fundingAddresses.has(h.owner)).length;
+    const status: Finding["status"] = deployerLinked > 0 || top1 > 30 ? "flag" : top5 > 50 ? "warn" : "ok";
+    findings.push({
+      read: "smart_money",
+      label: "Holder concentration",
+      source: "gotham",
+      status,
+      summary: `Top-1 <b>${top1.toFixed(1)}%</b>, top-5 ${top5.toFixed(1)}%, top-20 ${top20.toFixed(1)}%${
+        deployerLinked > 0 ? ` — <b>${deployerLinked} holder(s) linked to the funding trace</b>` : ""
+      }.`,
+      data: { top1, top5, top20, deployerLinked, holders: report.topHolders },
+    });
   }
 
   if (holders.status === "fulfilled" && holders.value) {
@@ -193,9 +231,12 @@ export async function scanAddress(address: string): Promise<ScanResult> {
         ).length;
         const labeled = top.filter((h) => h.address.arkhamEntity?.name).length;
         findings.push({
-          label: "Smart money",
-          value: `Top ${holderAddresses.length} holders: ${labeled} carry an Arkham entity label, ${highRisk} flagged HIGH/SEVERE risk.`,
+          read: "smart_money",
+          label: "Arkham smart money",
           source: "arkham",
+          status: highRisk > 0 ? "flag" : "ok",
+          summary: `Top ${holderAddresses.length} holders: ${labeled} carry an Arkham entity label, ${highRisk} flagged HIGH/SEVERE risk.`,
+          data: { holderAddresses, highRisk, labeled },
         });
       } catch {
         // Risk batch is an enrichment on top of holders — its failure shouldn't drop the holder finding entirely.
@@ -203,25 +244,32 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     }
   }
 
-  let verdict = "Scan complete — insufficient data for an automated verdict.";
-  let confidence: ScanResult["confidence"] = "low";
+  // ---- verdict: Ministral synthesis with rule-based fallback ----
+  const fallback = ruleBasedVerdict(findings);
+  let verdict: Verdict = fallback.verdict;
+  let verdict_line = fallback.verdict_line;
   try {
     const synthesis = await synthesizeVerdict({ address, findings });
     verdict = synthesis.verdict;
-    confidence = synthesis.confidence;
+    verdict_line = synthesis.verdict_line;
   } catch (err) {
-    console.error("Synthesis failed:", err);
-    // Synthesis is a summarizer, not a source of truth — a failure here
-    // must never hide the findings that already succeeded.
+    console.error("Synthesis failed, using rule-based fallback:", err);
   }
 
-  let exitWatch: ScanResult["exitWatch"] = { armed: false, alertId: null };
   try {
-    const alertId = await createExitWatchAlert(address, `Gotham exit-watch: ${address.slice(0, 8)}…`);
-    if (alertId !== null) exitWatch = { armed: true, alertId };
+    await createExitWatchAlert(address, `Gotham exit-watch: ${address.slice(0, 8)}…`);
   } catch {
     // Alerting is best-effort; a failed alert must never fail the scan itself.
   }
 
-  return { address, verdict, confidence, elapsedMs: Date.now() - started, findings, exitWatch };
+  return {
+    address,
+    kind,
+    verdict,
+    verdict_line,
+    findings,
+    answered_ms: Date.now() - started,
+    cached: false,
+    scanned_at: new Date().toISOString(),
+  };
 }

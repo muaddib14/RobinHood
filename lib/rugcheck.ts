@@ -51,3 +51,15 @@ export function topMarket(report: RugcheckReport): RugcheckMarket | null {
     return liq > bestLiq ? m : best;
   }, report.markets[0]);
 }
+
+export type MintOutcome = "rugged" | "alive" | "unknown";
+
+/** $500 liquidity floor: below that, a pool is functionally dead — anyone could pull what's left. */
+export async function classifyMintOutcome(mint: string): Promise<MintOutcome> {
+  const report = await getTokenReport(mint).catch(() => null);
+  if (!report) return "unknown";
+  const market = topMarket(report);
+  if (!market) return "unknown";
+  const liquidity = market.lp.baseUSD + market.lp.quoteUSD;
+  return liquidity < 500 ? "rugged" : "alive";
+}

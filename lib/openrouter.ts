@@ -1,30 +1,31 @@
 /**
  * Verdict synthesis via OpenRouter (Ministral) — single-user personal deploy,
  * so a cheap small model is deliberate, not a compromise: this is a summarizer,
- * not a reasoning engine. Findings are computed upstream; the model only writes
- * the one-line verdict + states which layer answered.
+ * not a reasoning engine. Findings are computed upstream; the model only picks
+ * one of the four verdict enums and writes the one-sentence verdict line.
+ * Per the brief: Claude/Ministral is the phrasing layer, never the decision
+ * layer — `lib/aggregate.ts` always has a rule-based fallback ready.
  */
+
+import type { Finding, Verdict } from "./types";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const envModel = process.env.OPENROUTER_MODEL;
-const MODEL = (!envModel || envModel === "mistralai/ministral-8b") 
-  ? "mistralai/ministral-8b-2512" 
-  : envModel;
+const MODEL = !envModel || envModel === "mistralai/ministral-8b" ? "mistralai/ministral-8b-2512" : envModel;
 
-export type SynthesisInput = {
-  address: string;
-  findings: Array<{ label: string; value: string; source: "own" | "arkham" }>;
-};
+export type SynthesisInput = { address: string; findings: Finding[] };
+export type SynthesisResult = { verdict: Verdict; verdict_line: string };
 
-export type SynthesisResult = { verdict: string; confidence: "low" | "medium" | "high" };
+const VALID_VERDICTS = new Set<Verdict>(["high_risk", "mixed", "clean", "insufficient_data"]);
 
-const SYSTEM_PROMPT = `You write one-line risk verdicts for a Solana wallet/token scanner.
+const SYSTEM_PROMPT = `You write one-line risk verdicts for a Solana wallet/token scanner from structured findings.
 Rules:
 - Base the verdict ONLY on the findings given. Never invent data.
-- If findings mostly come from "own" (live on-chain) with no "arkham" (entity) data, confidence is at most "medium" — the wallet may simply be too new to have entity history yet. State that plainly instead of implying certainty.
-- If findings include arkham entity/risk data, you may go up to "high" confidence.
-- Output strict JSON only: {"verdict": string, "confidence": "low"|"medium"|"high"}
-- verdict must be a single sentence, under 20 words, no hedging filler like "it appears that".`;
+- Choose exactly one verdict: "high_risk" | "mixed" | "clean" | "insufficient_data".
+- "insufficient_data" is a real, honest verdict — use it when findings are thin or mostly "unavailable", not as a failure.
+- The verdict_line states what was FOUND, never what to do. Never write "buy", "sell", "safe to ape", "will rug", or any prediction/recommendation.
+- verdict_line must be a single sentence, under 20 words, no hedging filler like "it appears that".
+- Output strict JSON only, no markdown fences, no preamble: {"verdict": string, "verdict_line": string}`;
 
 export async function synthesizeVerdict(input: SynthesisInput): Promise<SynthesisResult> {
   const key = process.env.OPENROUTER_API_KEY;
@@ -56,7 +57,11 @@ export async function synthesizeVerdict(input: SynthesisInput): Promise<Synthesi
   const content = json.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter returned no content");
 
-  const parsed = JSON.parse(content) as SynthesisResult;
-  if (!parsed.verdict || !parsed.confidence) throw new Error("Malformed synthesis result");
+  // Strip stray markdown fences some models add despite instructions.
+  const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const parsed = JSON.parse(cleaned) as SynthesisResult;
+  if (!parsed.verdict_line || !VALID_VERDICTS.has(parsed.verdict)) {
+    throw new Error("Malformed synthesis result");
+  }
   return parsed;
 }
