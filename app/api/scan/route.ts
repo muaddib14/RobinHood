@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { scanAddress } from "@/lib/aggregate";
+import { scanAddressStream } from "@/lib/aggregate";
+import { getCachedScan, setCachedScan } from "@/lib/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,10 +10,10 @@ const DAILY_LIMIT = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * In-memory rate limiter — no Supabase in M1, so this resets on every cold
- * start/redeploy. That's an honest, documented limitation for a single
- * personal deploy, not silently pretending to be durable. Swap for a
- * Supabase-backed counter once M2 lands.
+ * In-memory rate limiter — resets on every cold start/redeploy. That's an
+ * honest, documented limitation for a single personal deploy, not silently
+ * pretending to be durable. Swap for a Neon-backed counter if this ever
+ * needs to survive redeploys.
  */
 const requestLog = new Map<string, { count: number; resetAt: number }>();
 
@@ -60,13 +61,43 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  try {
-    const result = await scanAddress(address);
-    return NextResponse.json({ ...result, remaining_scans: remaining });
-  } catch (err) {
-    return NextResponse.json(
-      { error: "scan_failed", message: err instanceof Error ? err.message : "Scan failed" },
-      { status: 502 }
-    );
-  }
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      function send(event: object) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      }
+      try {
+        // Cache is a speed optimization, not a dependency — a Neon hiccup falls
+        // through to a live scan rather than failing the request.
+        const cached = await getCachedScan(address).catch(() => null);
+        if (cached) {
+          send({ type: "findings", findings: cached.findings });
+          send({ type: "done", result: { ...cached, remaining_scans: remaining } });
+          return;
+        }
+
+        for await (const event of scanAddressStream(address)) {
+          if (event.type === "done") {
+            setCachedScan(address, event.result).catch(() => {});
+            send({ type: "done", result: { ...event.result, remaining_scans: remaining } });
+          } else {
+            send(event);
+          }
+        }
+      } catch (err) {
+        send({ type: "error", message: err instanceof Error ? err.message : "Scan failed" });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    },
+  });
 }

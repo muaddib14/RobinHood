@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "GOTHAM — Wallet Intelligence",
+  "version": "0.0.1",
+  "description": "Injects a Gotham risk badge on pump.fun and DexScreener token pages.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://pump.fun/*", "https://dexscreener.com/*", "https://robin-hood-rho.vercel.app/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "GOTHAM settings"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://pump.fun/*", "https://dexscreener.com/*"],
+      "js": ["content.js"],
+      "css": ["badge.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon.jpeg",
+    "48": "icons/icon.jpeg",
+    "128": "icons/icon.jpeg"
+  }
+}

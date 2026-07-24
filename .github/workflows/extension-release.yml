@@ -1,0 +1,30 @@
+name: Extension release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches manifest version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION=$(node -p "require('./extension/manifest.json').version")
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match extension/manifest.json version ($MANIFEST_VERSION)"
+            exit 1
+          fi
+
+      - name: Zip extension
+        run: cd extension && zip -r ../gotham-extension-${{ github.ref_name }}.zip . -x "*.DS_Store"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: gotham-extension-${{ github.ref_name }}.zip
+          generate_release_notes: true

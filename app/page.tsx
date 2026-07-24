@@ -94,7 +94,7 @@ export default function Home() {
           Wallet intelligence <span className="dot">·</span> Solana <span className="dot">·</span> est. 2026
         </div>
         <h1 className="reveal in">GOTHAM</h1>
-        <p className="hero-tag reveal in">Every wallet has a past. See it before you buy.</p>
+        <p className="hero-tag reveal in">Every wallet has a past. See it before you decide.</p>
         <div className="hero-ctas reveal in">
           <a href="#scan" className="btn btn-solid">Launch app</a>
           <a href="#coverage" className="btn btn-line">Read the docs</a>
@@ -479,7 +479,7 @@ export default function Home() {
         <svg className="strip-art" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
           <rect width="1200" height="300" fill="url(#dither-sparse)" />
         </svg>
-        <p className="reveal">&quot;We show you what a wallet did — never what to buy.&quot;</p>
+        <p className="reveal">&quot;We show you what a wallet did — never what to do next.&quot;</p>
         <span className="strip-mono reveal">
           Intelligence, not financial advice · sources on every finding · decisions are yours
         </span>

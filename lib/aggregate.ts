@@ -34,37 +34,32 @@ export function ruleBasedVerdict(findings: Finding[]): { verdict: Verdict; verdi
 }
 
 /**
- * One scan = parallel fan-out to every source, degrade gracefully per-source.
- * Two tiers, both optional beyond the Gotham engine:
- *  - RugCheck (free, no key) covers token-safety signals.
- *  - Arkham (needs ARKHAM_API_KEY) adds the entity graph on top, when/if a
- *    key is configured. Its absence never blocks a scan — every Arkham call
- *    is isolated behind Promise.allSettled and reported as `unavailable`.
+ * Streamed scan — same two-tier fan-out as before, but yields findings as
+ * each layer finishes instead of making the client wait for all five.
+ * Layer 1 (Gotham/RugCheck) has no Arkham dependency, so it always yields
+ * first; Layer 2 (Arkham) yields second, then verdict synthesis.
  */
-export async function scanAddress(address: string): Promise<ScanResult> {
+export type ScanStreamEvent = { type: "findings"; findings: Finding[] } | { type: "done"; result: ScanResult };
+
+export async function* scanAddressStream(address: string): AsyncGenerator<ScanStreamEvent> {
   const started = Date.now();
   const findings: Finding[] = [];
 
-  const reportResult = await Promise.allSettled([getTokenReport(address)]);
-  const report = reportResult[0].status === "fulfilled" ? reportResult[0].value : null;
+  const report = await getTokenReport(address).catch(() => null);
   const kind: ScanResult["kind"] = report ? "token" : "wallet";
 
   // If RugCheck knows this as a token, the deployer is its creator, not the
   // mint address itself — every deployer-scoped lookup below targets that.
   const deployerAddress = report?.creator ?? address;
 
-  const [age, deployerHistory, fundingTrace, mintFallback, lpFallback, intel, risk, counterparties, holders] =
-    await Promise.allSettled([
-      getWalletAge(deployerAddress),
-      getDeployerHistory(deployerAddress),
-      getFundingTrace(deployerAddress),
-      report ? Promise.resolve(null) : getMintChecks(address),
-      report ? Promise.resolve(null) : getLpLockStatus(address),
-      getAddressIntel(address),
-      getRisk(address),
-      getCounterparties(address),
-      getTokenHolders("solana", address),
-    ]);
+  // ---- Layer 1: Gotham engine + RugCheck, no Arkham dependency ----
+  const [age, deployerHistory, fundingTrace, mintFallback, lpFallback] = await Promise.allSettled([
+    getWalletAge(deployerAddress),
+    getDeployerHistory(deployerAddress),
+    getFundingTrace(deployerAddress),
+    report ? Promise.resolve(null) : getMintChecks(address),
+    report ? Promise.resolve(null) : getLpLockStatus(address),
+  ]);
 
   // ---- deployer read ----
   if (age.status === "fulfilled" && deployerHistory.status === "fulfilled") {
@@ -115,7 +110,7 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     const mintActive = !!report.token.mintAuthority;
     const freezeActive = !!report.token.freezeAuthority;
     const market = topMarket(report);
-    const lpLockedPct = market?.lp.lpLockedPct ?? 0;
+    const lpLockedPct = market?.lp?.lpLockedPct ?? 0;
     const status: Finding["status"] = mintActive || lpLockedPct < 20 ? "flag" : freezeActive ? "warn" : "ok";
     findings.push({
       read: "token_checks",
@@ -144,6 +139,40 @@ export async function scanAddress(address: string): Promise<ScanResult> {
       data: { mintFallback: mintFallback.value, lpFallback: lpFallback.status === "fulfilled" ? lpFallback.value : null },
     });
   }
+
+  // ---- smart_money read: Gotham half (holder concentration) ----
+  const fundingAddresses = new Set(
+    fundingTrace.status === "fulfilled" ? fundingTrace.value.hops.map((h) => h.address) : []
+  );
+  if (report?.topHolders?.length) {
+    const top1 = report.topHolders[0]?.pct ?? 0;
+    const top5 = report.topHolders.slice(0, 5).reduce((sum, h) => sum + h.pct, 0);
+    const top20 = report.topHolders.slice(0, 20).reduce((sum, h) => sum + h.pct, 0);
+    const deployerLinked = report.topHolders.filter((h) => fundingAddresses.has(h.owner)).length;
+    const status: Finding["status"] = deployerLinked > 0 || top1 > 30 ? "flag" : top5 > 50 ? "warn" : "ok";
+    findings.push({
+      read: "smart_money",
+      label: "Holder concentration",
+      source: "gotham",
+      status,
+      summary: `Top-1 <b>${top1.toFixed(1)}%</b>, top-5 ${top5.toFixed(1)}%, top-20 ${top20.toFixed(1)}%${
+        deployerLinked > 0 ? ` — <b>${deployerLinked} holder(s) linked to the funding trace</b>` : ""
+      }.`,
+      data: { top1, top5, top20, deployerLinked, holders: report.topHolders },
+    });
+  }
+
+  yield { type: "findings", findings: [...findings] };
+
+  // ---- Layer 2: Arkham entity graph, isolated behind its own settle so a
+  // slow/missing key never blocks Layer 1 from reaching the client first ----
+  const [intel, risk, counterparties, holders] = await Promise.allSettled([
+    getAddressIntel(address),
+    getRisk(address),
+    getCounterparties(address),
+    getTokenHolders("solana", address),
+  ]);
+  const arkhamFindingsStart = findings.length;
 
   // ---- entity_match read (Arkham-only; unavailable without a key, per brief) ----
   if (intel.status === "fulfilled" && intel.value) {
@@ -198,28 +227,7 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     }
   }
 
-  // ---- smart_money read: Gotham half (holder concentration) + Arkham half (profitability) ----
-  const fundingAddresses = new Set(
-    fundingTrace.status === "fulfilled" ? fundingTrace.value.hops.map((h) => h.address) : []
-  );
-  if (report?.topHolders.length) {
-    const top1 = report.topHolders[0]?.pct ?? 0;
-    const top5 = report.topHolders.slice(0, 5).reduce((sum, h) => sum + h.pct, 0);
-    const top20 = report.topHolders.slice(0, 20).reduce((sum, h) => sum + h.pct, 0);
-    const deployerLinked = report.topHolders.filter((h) => fundingAddresses.has(h.owner)).length;
-    const status: Finding["status"] = deployerLinked > 0 || top1 > 30 ? "flag" : top5 > 50 ? "warn" : "ok";
-    findings.push({
-      read: "smart_money",
-      label: "Holder concentration",
-      source: "gotham",
-      status,
-      summary: `Top-1 <b>${top1.toFixed(1)}%</b>, top-5 ${top5.toFixed(1)}%, top-20 ${top20.toFixed(1)}%${
-        deployerLinked > 0 ? ` — <b>${deployerLinked} holder(s) linked to the funding trace</b>` : ""
-      }.`,
-      data: { top1, top5, top20, deployerLinked, holders: report.topHolders },
-    });
-  }
-
+  // ---- smart_money read: Arkham half (top-trader profitability) ----
   if (holders.status === "fulfilled" && holders.value) {
     const top = Object.values(holders.value.addressTopHolders)[0] ?? [];
     const holderAddresses = top.slice(0, 20).map((h) => h.address.address);
@@ -244,6 +252,8 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     }
   }
 
+  yield { type: "findings", findings: findings.slice(arkhamFindingsStart) };
+
   // ---- verdict: Ministral synthesis with rule-based fallback ----
   const fallback = ruleBasedVerdict(findings);
   let verdict: Verdict = fallback.verdict;
@@ -262,14 +272,27 @@ export async function scanAddress(address: string): Promise<ScanResult> {
     // Alerting is best-effort; a failed alert must never fail the scan itself.
   }
 
-  return {
-    address,
-    kind,
-    verdict,
-    verdict_line,
-    findings,
-    answered_ms: Date.now() - started,
-    cached: false,
-    scanned_at: new Date().toISOString(),
+  yield {
+    type: "done",
+    result: {
+      address,
+      kind,
+      verdict,
+      verdict_line,
+      findings,
+      answered_ms: Date.now() - started,
+      cached: false,
+      scanned_at: new Date().toISOString(),
+    },
   };
+}
+
+/** Non-streaming convenience wrapper — drains the generator for callers that just want the final result (e.g. a future cron worker). */
+export async function scanAddress(address: string): Promise<ScanResult> {
+  let result: ScanResult | undefined;
+  for await (const event of scanAddressStream(address)) {
+    if (event.type === "done") result = event.result;
+  }
+  if (!result) throw new Error("Scan produced no result");
+  return result;
 }

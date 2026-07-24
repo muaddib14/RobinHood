@@ -1,0 +1,14 @@
+#gotham-badge {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 999999;
+  background: #0a1a0a;
+  color: #d4ff7a;
+  border: 2px solid #999999;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-family: monospace;
+  font-size: 13px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}

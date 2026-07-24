@@ -4,6 +4,8 @@ For any AI agent picking up this repo after M1. Read this before touching code �
 
 **Repo:** `muaddib14/RobinHood` · branch `main` · Next.js App Router, TypeScript, no Tailwind (hand-written CSS in `app/globals.css`)
 
+**Prod:** `https://robin-hood-rho.vercel.app` (Vercel auto-deploys `main` on push). **Note for future agents:** everything in §2.4 onward (Neon, cache, watchlist, streaming, banned-phrase CI, the null-deref bugfix, extension skeleton) sat uncommitted in the local working tree for most of this session — prod was still serving the old M1 commit (`5c0e2d3`) the whole time, including the null-deref bug that was "fixed" locally but still live. Caught by smoke-testing prod directly after the owner shared the URL, not by anything automatic. **Lesson: verify against prod, not just local dev, once a deploy URL exists — local build passing doesn't mean prod has the same code.** Everything below was committed and pushed same day (2026-07-24) once this was caught; if a future gap between local and prod is suspected, `git status`/`git log origin/main..HEAD` first.
+
 ---
 
 ## 1. Status: M1 shipped (commit `3706af1`)
@@ -44,9 +46,20 @@ These were explicitly discussed and agreed with the project owner. An agent prop
 - Covers: deployer/creator, mint/freeze authority, LP lock per-pool, top holders, risk flags.
 - This is why Layer 1 (`token_checks`, `smart_money`-half) doesn't depend on Arkham at all.
 
-### 2.4 Supabase — not yet wired, deferred to M2/M3 on purpose
-- M1 shipped with **zero database**. Rate limiting (`app/api/scan/route.ts`) is an in-memory `Map`, which is explicitly documented in code comments as resetting on every cold start/redeploy — this is an accepted limitation for now, not an oversight.
-- Do not add Supabase speculatively. Only wire it in when you're actually building the M2 cache or M3 watchlist (see below) — introducing the dependency without a consumer is exactly the kind of premature complexity to avoid.
+### 2.4 Database: Neon Postgres, not Supabase (decided 2026-07-24)
+- Owner chose Neon over Supabase for M2+. `DATABASE_URL` in `.env`, driver is `@neondatabase/serverless` (`lib/db.ts`, tagged-template `sql`).
+- M3 auth consequence: Neon has no built-in auth service, unlike Supabase Auth. §4.2 below (originally "use Supabase Auth to avoid a second auth system") no longer applies as written — M3 will need a separate auth lib (e.g. Auth.js) on top of Neon. Flag this to the owner before starting M3, don't just pick one.
+- In-memory rate limiter (`app/api/scan/route.ts`) is unaffected — still resets on cold start, still an accepted limitation, not wired to Neon.
+
+### 2.5 Watchlist shipped early, IP-tagged, no auth (decided 2026-07-24)
+- Owner wanted watchlist usable now, ahead of M3 auth. `POST /api/watchlist` is live (`app/api/watchlist/route.ts`, `lib/watchlist.ts`, table in `lib/migrations/002_watchlist.sql`).
+- Rows are keyed by `owner_ip` (same IP extraction as the scan rate limiter), **not** `user_id` — there is no `users` table yet. This is a deliberate stand-in, marked with a `ponytail:` comment in the migration. When M3 auth lands, add `user_id`, backfill, and migrate ownership — don't just bolt auth on top of `owner_ip`.
+- GET (list) and DELETE are **not built** — only POST exists. Don't assume the other verbs work.
+- Wired into the UI: "Watch this address" button in `ScanShell.tsx`, appears after a completed scan.
+
+### 2.6 Alert worker: external cron, not Vercel Cron (decided 2026-07-24)
+- Owner wants an external cron service (e.g. cron-job.org, GitHub Actions schedule) hitting `/api/cron/watch`, not Vercel Cron. Overrides brief §11.
+- Functionally identical either way — the route stays guarded by `CRON_SECRET`, only the caller changes. Not yet built.
 
 ---
 
@@ -54,26 +67,32 @@ These were explicitly discussed and agreed with the project owner. An agent prop
 
 Since Arkham is already fully integrated (§2.1) and Claude was swapped for OpenRouter (§2.2) in M1 itself, M2 per the original brief is **mostly already done**. What's left:
 
-- [ ] **`address_cache` Supabase table** — only worth building once Arkham has a real key (caching `unavailable` responses is pointless). 24h TTL per the original brief. Skip until §2.1 changes.
-- [ ] **Scan result caching** (15-min TTL, `cached: true` flag) — this one's useful regardless of Arkham. Same table or a separate `scans` cache keyed by address. This is the first real reason to add Supabase.
-- [ ] **Streaming findings to the client** as each read completes, instead of waiting for all five (brief §13). `ScanShell.tsx` already has staged loading-copy that cycles — real streaming would replace the fake stage cycling with actual progressive reveal. Needs `/api/scan` to become a streaming response (SSE or chunked) instead of a single JSON blob. Non-trivial refactor of the route handler; UI reveal animation already supports it structurally.
+- [ ] **`address_cache` Neon table** — only worth building once Arkham has a real key (caching `unavailable` responses is pointless). 24h TTL per the original brief. Skip until §2.1 changes.
+- [x] **Scan result caching** (15-min TTL, `cached: true` flag) — done. `scans` table (`lib/migrations/001_scans_cache.sql`), `lib/cache.ts`, wired into `app/api/scan/route.ts`. Cache lookup/write both fail-open (swallowed errors fall through to a live scan) so a Neon outage can't break scanning.
+- [x] **Streaming findings to the client** (brief §13) — done 2026-07-24. `/api/scan` now returns `text/event-stream`: `lib/aggregate.ts:scanAddressStream()` yields Layer 1 (Gotham/RugCheck) findings first, then Layer 2 (Arkham) findings, then a `done` event with the full `ScanResult`. Cache hits collapse to one `findings` event + `done`. `scanAddress()` kept as a non-streaming wrapper that drains the generator, for future callers (cron worker) that just want the final result. `ScanShell.tsx` renders findings as they arrive during `loading`; the staged loading-copy (`LOADING_STAGES`) stays as filler text under the real partial results, not replaced.
+- [x] **Watchlist POST** — done ahead of schedule, see §2.5. GET/DELETE still open.
+- [ ] **`/api/scan/[id]`** (GET, brief §9) — retrieve a scan by id for shareable links (someone shares a scan result, viewer sees the exact same result instantly instead of re-scanning, and it stays a snapshot even if on-chain state changes after). Not built. Needs its own storage — the current `scans` cache table (`lib/migrations/001_scans_cache.sql`) is keyed by `address` with a 15-min TTL and gets overwritten on every fresh scan, so it can't double as permanent share-by-id storage. Needs either a new `id uuid` column + no-overwrite insert, or a separate table.
+- [x] **Banned-phrase CI check** (brief §14/§17) — done. `scripts/check-banned-phrases.mjs` (`npm run check:copy`), wired into `.github/workflows/check-copy.yml` on PRs touching `app/**`. Scans `app/page.tsx`, `ScanShell.tsx`, `Reveal.tsx`, `layout.tsx` for whole-word hits on buy/sell/safe-to-ape/will-rug/etc. Caught 3 real hits in hero copy ("before you buy") — reworded to "before you decide" / "what to do next", not whitelisted. Add new user-facing files (Telegram templates in M3, extension copy in M4) to `TARGET_FILES`.
+- [x] **Trademark check on "Gotham"** (brief §17) — done 2026-07-24, web search only (not a legal opinion). Three real collisions found: **Palantir Gotham** (established defense/intelligence platform, biggest risk — same "intelligence software" category the brief itself calls out, likely trademarked, big company), **Gotham City** (ZenGo-X open-source Bitcoin HD wallet, close to this product's crypto-wallet context), **Gotham Security** (NYC pentest/cybersecurity firm since 2013). Flagged to owner, not resolved — rename is a product decision, not something to act on unilaterally. Revisit before any public launch or paid marketing spend.
 
-**Recommendation:** do §3's caching item first (cheap, real value, introduces Supabase for a genuine reason) and treat streaming + Arkham cache as stretch goals.
+**Recommendation:** do §3's caching item first (cheap, real value, introduces Neon for a genuine reason) and treat streaming + Arkham cache as stretch goals.
+
+**Known pre-existing bug, fixed 2026-07-24:** `lib/aggregate.ts` had two unguarded nested optional-chains (`report?.topHolders.length`, `market?.lp.lpLockedPct`) that threw when RugCheck returned a report with a null sub-field — crashed the whole scan with a 502, not caught by the "scan can't fail" fallback because it happened outside the synthesis step. Both now null-guarded properly.
 
 ---
 
 ## 4. M3 — Retention (auth, watchlist, Telegram alerts)
 
-Not started. This is where Supabase becomes mandatory — no way around it for user accounts and persistent watchlists.
+Not started. This is where Neon becomes mandatory — no way around it for user accounts and persistent watchlists.
 
 ### 4.1 Schema
-Use the original brief's schema as-is (`users`, `watchlist`, `alert_rules`, `alerts_sent`, `known_rug_wallets`, `scans`). RLS on every user-scoped table.
+Use the original brief's schema as-is (`users`, `alert_rules`, `alerts_sent`, `known_rug_wallets`, `scans`) — **except `watchlist`, which already exists** (§2.5) keyed by `owner_ip`, not `user_id`. Migrating it to the real schema (add `user_id`, backfill/reconcile IP-tagged rows, drop or repurpose `owner_ip`) is part of M3, not a fresh table create. RLS on every user-scoped table — note RLS alone won't enforce ownership without `user_id` in place first.
 
 ### 4.2 Auth
-Brief doesn't specify a provider. Recommend Supabase Auth directly (magic link or Telegram-based, since the product's primary channel is Telegram anyway) — avoids introducing a second auth system.
+Brief doesn't specify a provider. Original recommendation was Supabase Auth (magic link or Telegram-based) to avoid a second auth system — **no longer applies**, DB is Neon as of §2.4 (2026-07-24), which has no built-in auth. Needs its own decision (e.g. Auth.js) before M3 starts; confirm with owner. **Owner explicitly deferred this (2026-07-24)** — "later, not now" — don't start auth work unprompted; watchlist stays IP-tagged (§2.5) until they ask for it.
 
 ### 4.3 Alert worker
-Vercel Cron → `/api/cron/watch`, guarded by `CRON_SECRET`. Five rules from the original brief (deployer-linked sell, LP pull, top-20 holder exit, upstream funder redeploys, new Arkham label). **Rule 5 will never fire without an Arkham key** (§2.1) — implement it, but it's a no-op in the current environment. Document that in the code, don't skip writing it.
+**External cron, not Vercel Cron** (§2.6, overrides brief §11) → `/api/cron/watch`, guarded by `CRON_SECRET`. Five rules from the original brief (deployer-linked sell, LP pull, top-20 holder exit, upstream funder redeploys, new Arkham label). **Rule 5 will never fire without an Arkham key** (§2.1) — implement it, but it's a no-op in the current environment. Document that in the code, don't skip writing it.
 
 **Deduplication is mandatory** (60-min window per `alerts_sent`) — this was explicit in the original brief and still applies.
 
@@ -84,11 +103,13 @@ Vercel Cron → `/api/cron/watch`, guarded by `CRON_SECRET`. Five rules from the
 
 ## 5. M4 — Distribution
 
-Not started. Chrome extension is explicitly called out in the original brief as "the highest-leverage item" — do this before the public API/MCP server if choosing what to build first.
+Chrome extension **started 2026-07-24** (confirmed no M3 dependency — it only calls the already-public `/api/scan`, no auth/watchlist/Telegram needed).
 
-- Chrome extension: inject a risk badge on pump.fun / DexScreener pages by calling `/api/scan` with the address parsed from the page URL/DOM.
-- Public API + issued keys: straightforward once rate limiting (§2.4, currently in-memory) is Supabase-backed — anonymous in-memory limits don't work for issued API keys across serverless instances.
-- MCP server: lowest priority, no urgency signal from the owner.
+- **Chrome extension** — skeleton built in `extension/` (Manifest V3), same repo, not a separate one. `content.js` parses a base58 address from the page URL on pump.fun/DexScreener, calls `/api/scan`, drains the SSE stream, renders a fixed-position badge colored by verdict. `popup.html`/`popup.js` let the user override the API base URL (`chrome.storage.sync`); both default to `https://robin-hood-rho.vercel.app` (current prod, owner-provided 2026-07-24) hardcoded as `DEFAULT_API_BASE_URL` in both files — **when a custom domain is bought and wrapped around the Vercel deploy, update that constant in both `content.js` and `popup.js`, and add the new domain to `host_permissions` in `manifest.json`** (currently lists the `.vercel.app` URL explicitly; Vercel domain stays live per owner even after a custom domain is added, so the old entry doesn't need removing, just don't forget the new one). Icons reuse the landing page logo (`extension/icons/icon.jpeg`, copied from `app/icon.jpeg`) at all three declared sizes — same source file, not separately rendered per-size; fine for unpacked/dev use, revisit before Chrome Web Store submission if their asset guidelines want real PNGs.
+  - Versioning/release strategy (owner's call, 2026-07-24): website updates ship via normal `git push` to `main` (Vercel auto-deploys, untouched by any of this). Extension updates are **tag-gated**: bump `extension/manifest.json`'s `version`, then push a `vX.Y.Z` tag. `.github/workflows/extension-release.yml` fires on that tag, **fails the build if the tag doesn't match the manifest version** (guardrail against shipping an unbumped version), zips `extension/`, and attaches it to a GitHub Release. That zip is what gets manually uploaded to the Chrome Web Store dashboard — there's no CWS auto-publish wired up (would need a Web Store API key/OAuth, not set up).
+  - Not yet done: real icons, actual DOM-based fallback if URL parsing misses (pump.fun/DexScreener URL structure can change), banned-phrase check doesn't cover `extension/content.js` yet (its user-facing badge strings are minimal today — revisit if that grows).
+- Public API + issued keys: straightforward once rate limiting (§2.4, currently in-memory) is Neon-backed — anonymous in-memory limits don't work for issued API keys across serverless instances. Not started.
+- MCP server: lowest priority, no urgency signal from the owner. Not started.
 
 ---
 
@@ -108,5 +129,6 @@ If a future request from the owner conflicts with this section, flag it back to 
 ## 7. Before doing M2/M3/M4 work
 
 - Confirm with the owner whether §2.1 (Arkham) or §2.2 (Claude) has changed before assuming either is still out of scope — these were point-in-time budget decisions, not permanent architecture calls.
-- Supabase project doesn't exist yet as of this writing — confirm one has been created before writing schema migrations.
+- Neon project exists (`neondb`, created 2026-07-24), `scans` and `watchlist` tables migrated. Confirm connection is still live before writing further M3 schema.
+- `watchlist` is IP-tagged, not user-tagged (§2.5) — don't build M3 auth as if the table doesn't exist yet.
 - Re-run `npm run build && npm run lint` before considering any milestone item done. No exceptions carried over from M1's own verification standard.

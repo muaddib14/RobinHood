@@ -25,18 +25,44 @@ const STATUS_LABEL: Record<FindingStatus, string> = {
 
 type ApiError = { error: string; message: string; remaining?: number };
 type ScanResponse = ScanResult & { remaining_scans: number };
+type WatchState = "idle" | "adding" | "added" | "error";
+type StreamEvent =
+  | { type: "findings"; findings: Finding[] }
+  | { type: "done"; result: ScanResponse }
+  | { type: "error"; message: string };
 
 type State =
   | { status: "idle" }
-  | { status: "loading" }
+  | { status: "loading"; findings: Finding[] }
   | { status: "error"; kind: "invalid" | "rate_limited" | "failed"; message: string }
   | { status: "done"; result: ScanResponse };
 
+function renderFinding(f: Finding, i: number) {
+  return (
+    <div className="finding" key={i}>
+      <span className="f-label">
+        {f.label} <span style={{ opacity: 0.6 }}>[{STATUS_LABEL[f.status]}]</span>
+      </span>
+      <span
+        className="f-value"
+        dangerouslySetInnerHTML={{
+          __html: f.status === "unavailable" ? `<i>${f.summary}</i>` : f.summary,
+        }}
+      />
+      <span className={`src ${f.source === "gotham" ? "own" : "arkham"}`}>
+        {f.source === "gotham" ? "Gotham engine" : "Arkham"}
+      </span>
+    </div>
+  );
+}
+
 export default function ScanShell() {
   const [address, setAddress] = useState("");
+  const [selectedSample, setSelectedSample] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [state, setState] = useState<State>({ status: "idle" });
   const [stageIndex, setStageIndex] = useState(0);
+  const [watchState, setWatchState] = useState<WatchState>("idle");
   const stageTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
@@ -60,16 +86,16 @@ export default function ScanShell() {
     }
     setInlineError(null);
     setStageIndex(0);
-    setState({ status: "loading" });
+    setWatchState("idle");
+    setState({ status: "loading", findings: [] });
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ address: target }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        const err = data as ApiError;
+        const err = (await res.json()) as ApiError;
         if (res.status === 429) {
           setState({ status: "error", kind: "rate_limited", message: err.message });
         } else if (res.status === 400) {
@@ -79,7 +105,30 @@ export default function ScanShell() {
         }
         return;
       }
-      setState({ status: "done", result: data as ScanResponse });
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("Stream unavailable");
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+        for (const chunk of chunks) {
+          if (!chunk.startsWith("data: ")) continue;
+          const event = JSON.parse(chunk.slice(6)) as StreamEvent;
+          if (event.type === "findings") {
+            setState((s) => (s.status === "loading" ? { status: "loading", findings: [...s.findings, ...event.findings] } : s));
+          } else if (event.type === "done") {
+            setState({ status: "done", result: event.result });
+          } else {
+            setState({ status: "error", kind: "failed", message: event.message });
+          }
+        }
+      }
     } catch {
       setState({ status: "error", kind: "failed", message: "Scan failed. Try again." });
     }
@@ -87,7 +136,26 @@ export default function ScanShell() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    runScan(address.trim());
+    const target = address.trim() || selectedSample;
+    if (!target) {
+      setInlineError("Paste an address or pick a sample first.");
+      return;
+    }
+    runScan(target);
+  }
+
+  async function addToWatchlist(target: string) {
+    setWatchState("adding");
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address: target }),
+      });
+      setWatchState(res.ok ? "added" : "error");
+    } catch {
+      setWatchState("error");
+    }
   }
 
   return (
@@ -99,6 +167,7 @@ export default function ScanShell() {
           value={address}
           onChange={(e) => {
             setAddress(e.target.value);
+            setSelectedSample(null);
             if (inlineError) setInlineError(null);
           }}
           placeholder={PLACEHOLDER}
@@ -121,10 +190,16 @@ export default function ScanShell() {
             key={s.address}
             type="button"
             className="src own"
-            style={{ cursor: "pointer" }}
+            style={{
+              cursor: "pointer",
+              outline: selectedSample === s.address ? "2px solid currentColor" : "none",
+              outlineOffset: "2px",
+            }}
+            aria-pressed={selectedSample === s.address}
             onClick={() => {
-              setAddress(s.address);
-              runScan(s.address);
+              setAddress("");
+              setSelectedSample((cur) => (cur === s.address ? null : s.address));
+              if (inlineError) setInlineError(null);
             }}
             disabled={state.status === "loading"}
           >
@@ -143,7 +218,10 @@ export default function ScanShell() {
         )}
 
         {state.status === "loading" && (
-          <p className="scan-footnote">{LOADING_STAGES[stageIndex]}</p>
+          <>
+            {state.findings.map(renderFinding)}
+            <p className="scan-footnote">{LOADING_STAGES[stageIndex]}</p>
+          </>
         )}
 
         {state.status === "error" && state.kind === "rate_limited" && (
@@ -169,26 +247,28 @@ export default function ScanShell() {
               <strong>{state.result.verdict_line}</strong>
               <span className="time">Answered in {(state.result.answered_ms / 1000).toFixed(1)}s</span>
             </div>
-            {state.result.findings.map((f: Finding, i: number) => (
-              <div className="finding" key={i}>
-                <span className="f-label">
-                  {f.label} <span style={{ opacity: 0.6 }}>[{STATUS_LABEL[f.status]}]</span>
-                </span>
-                <span
-                  className="f-value"
-                  dangerouslySetInnerHTML={{
-                    __html: f.status === "unavailable" ? `<i>${f.summary}</i>` : f.summary,
-                  }}
-                />
-                <span className={`src ${f.source === "gotham" ? "own" : "arkham"}`}>
-                  {f.source === "gotham" ? "Gotham engine" : "Arkham"}
-                </span>
-              </div>
-            ))}
+            {state.result.findings.map(renderFinding)}
             <p className="scan-footnote">
               Verdict: <em>{state.result.verdict.replace("_", " ")}</em>. {state.result.remaining_scans} free
               scans remaining today. Informational only — not financial advice.
             </p>
+            <div style={{ padding: "0 26px 16px" }}>
+              <button
+                type="button"
+                className="src own"
+                style={{ cursor: watchState === "adding" ? "default" : "pointer" }}
+                disabled={watchState === "adding" || watchState === "added"}
+                onClick={() => addToWatchlist(state.result.address)}
+              >
+                {watchState === "added"
+                  ? "Watching"
+                  : watchState === "adding"
+                    ? "Adding…"
+                    : watchState === "error"
+                      ? "Failed — retry"
+                      : "Watch this address"}
+              </button>
+            </div>
           </>
         )}
       </div>

@@ -24,7 +24,7 @@ const instrumentSerif = Instrument_Serif({
 export const metadata: Metadata = {
   title: "GOTHAM — Wallet intelligence for Solana",
   description:
-    "Every wallet has a past. See it before you buy. Paste any Solana token or wallet address and get a sourced verdict in seconds.",
+    "Every wallet has a past. See it before you decide. Paste any Solana token or wallet address and get a sourced verdict in seconds.",
 };
 
 export default function RootLayout({
