@@ -37,7 +37,7 @@ const DEFAULT_NODES: FlowNode[] = [
   { id: "tok", label: "$TOKEN", sub: "the mint", addr: "7xKX…9fQm", layer: 4, type: "token", flagged: false, source: "gotham" },
 ];
 
-const NOW = Date.now();
+const NOW = 1784820000000;
 const H = (h: number) => NOW - h * 3600 * 1000;
 
 const DEFAULT_EDGES: FlowEdge[] = [
@@ -60,7 +60,7 @@ const BUCKETS = 48;
 const T_SPAN = 72 * 3600 * 1000;
 
 function usdFmt(v: number) {
-  return "$" + v.toLocaleString();
+  return "$" + v.toLocaleString("en-US");
 }
 
 function ago(ts: number) {
