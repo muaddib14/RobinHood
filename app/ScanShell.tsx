@@ -222,14 +222,15 @@ export default function ScanShell() {
             className="src own"
             style={{
               cursor: "pointer",
-              outline: selectedSample === s.address ? "2px solid currentColor" : "none",
+              outline: address === s.address ? "2px solid currentColor" : "none",
               outlineOffset: "2px",
             }}
-            aria-pressed={selectedSample === s.address}
+            aria-pressed={address === s.address}
             onClick={() => {
-              setAddress("");
-              setSelectedSample((cur) => (cur === s.address ? null : s.address));
+              setAddress(s.address);
+              setSelectedSample(s.address);
               if (inlineError) setInlineError(null);
+              runScan(s.address);
             }}
             disabled={state.status === "loading"}
           >
