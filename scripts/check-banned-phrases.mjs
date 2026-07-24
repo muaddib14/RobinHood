@@ -8,6 +8,7 @@ const TARGET_FILES = [
   "app/ScanShell.tsx",
   "app/Reveal.tsx",
   "app/layout.tsx",
+  "app/scan/[id]/page.tsx",
 ];
 
 // Whole-word, case-insensitive. Keep in sync with brief §14.

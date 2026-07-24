@@ -26,6 +26,7 @@ const STATUS_LABEL: Record<FindingStatus, string> = {
 type ApiError = { error: string; message: string; remaining?: number };
 type ScanResponse = ScanResult & { remaining_scans: number };
 type WatchState = "idle" | "adding" | "added" | "error";
+type ShareState = "idle" | "creating" | "copied" | "error";
 type StreamEvent =
   | { type: "findings"; findings: Finding[] }
   | { type: "done"; result: ScanResponse }
@@ -63,6 +64,7 @@ export default function ScanShell() {
   const [state, setState] = useState<State>({ status: "idle" });
   const [stageIndex, setStageIndex] = useState(0);
   const [watchState, setWatchState] = useState<WatchState>("idle");
+  const [shareState, setShareState] = useState<ShareState>("idle");
   const stageTimer = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
@@ -87,6 +89,7 @@ export default function ScanShell() {
     setInlineError(null);
     setStageIndex(0);
     setWatchState("idle");
+    setShareState("idle");
     setState({ status: "loading", findings: [] });
     try {
       const res = await fetch("/api/scan", {
@@ -155,6 +158,26 @@ export default function ScanShell() {
       setWatchState(res.ok ? "added" : "error");
     } catch {
       setWatchState("error");
+    }
+  }
+
+  async function shareResult(result: ScanResponse) {
+    setShareState("creating");
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(result),
+      });
+      if (!res.ok) {
+        setShareState("error");
+        return;
+      }
+      const { id } = await res.json();
+      await navigator.clipboard.writeText(`${location.origin}/scan/${id}`);
+      setShareState("copied");
+    } catch {
+      setShareState("error");
     }
   }
 
@@ -252,7 +275,7 @@ export default function ScanShell() {
               Verdict: <em>{state.result.verdict.replace("_", " ")}</em>. {state.result.remaining_scans} free
               scans remaining today. Informational only — not financial advice.
             </p>
-            <div style={{ padding: "0 26px 16px" }}>
+            <div style={{ padding: "0 26px 16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className="src own"
@@ -267,6 +290,21 @@ export default function ScanShell() {
                     : watchState === "error"
                       ? "Failed — retry"
                       : "Watch this address"}
+              </button>
+              <button
+                type="button"
+                className="src own"
+                style={{ cursor: shareState === "creating" ? "default" : "pointer" }}
+                disabled={shareState === "creating"}
+                onClick={() => shareResult(state.result)}
+              >
+                {shareState === "copied"
+                  ? "Link copied"
+                  : shareState === "creating"
+                    ? "Creating link…"
+                    : shareState === "error"
+                      ? "Failed — retry"
+                      : "Copy share link"}
               </button>
             </div>
           </>
