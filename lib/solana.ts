@@ -123,6 +123,72 @@ export type FundingTrace = {
   sampledRecipients: number;
 };
 
+type FirstFunder = { source: string; lamports: number; blockTime: number; signature: string };
+
+type HeliusTx = {
+  signature: string;
+  timestamp: number;
+  nativeTransfers?: Array<{ fromUserAccount: string; toUserAccount: string; amount: number }>;
+};
+
+/** Extracts the api-key query param Helius RPC URLs carry — null for any other provider. */
+function heliusApiKey(): string | null {
+  if (!RPC_URL) return null;
+  try {
+    return new URL(RPC_URL).searchParams.get("api-key");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Earliest inbound native SOL transfer into `address`, searched via Helius
+ * Enhanced Transactions API — one request returns up to 100 ALREADY-PARSED
+ * transactions (nativeTransfers pre-extracted), vs. raw RPC's one
+ * getTransaction call per signature. That lets this walk up to 5 pages
+ * (500 tx) back for roughly the cost of the old 60-tx raw-RPC scan.
+ * Confirmed live: without this, wallets whose recent history is all DEX
+ * swaps (Pump AMM, Raydium, ...) never surface their real funding tx,
+ * because it sits further back than a shallow window can reach.
+ * Falls back to the raw-RPC method if SOLANA_RPC_URL isn't a Helius URL.
+ */
+async function findFirstFunder(address: string): Promise<FirstFunder | null> {
+  const apiKey = heliusApiKey();
+  if (apiKey) return findFirstFunderViaHelius(address, apiKey);
+  return findFirstFunderViaRpc(address);
+}
+
+async function findFirstFunderViaHelius(address: string, apiKey: string): Promise<FirstFunder | null> {
+  const MAX_PAGES = 5;
+  let before: string | undefined;
+  let earliest: FirstFunder | null = null;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = new URL(`https://api.helius.xyz/v0/addresses/${address}/transactions`);
+    url.searchParams.set("api-key", apiKey);
+    url.searchParams.set("limit", "100");
+    if (before) url.searchParams.set("before", before);
+
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) break;
+    const txs = (await res.json()) as HeliusTx[];
+    if (!txs.length) break;
+
+    for (const tx of txs) {
+      for (const t of tx.nativeTransfers ?? []) {
+        if (t.toUserAccount !== address || t.fromUserAccount === address || !t.fromUserAccount) continue;
+        if (!earliest || tx.timestamp < earliest.blockTime) {
+          earliest = { source: t.fromUserAccount, lamports: t.amount, blockTime: tx.timestamp, signature: tx.signature };
+        }
+      }
+    }
+
+    if (txs.length < 100) break; // last page
+    before = txs[txs.length - 1].signature;
+  }
+  return earliest;
+}
+
 type NativeTransferIx = {
   program?: string;
   parsed?: { type?: string; info?: { source?: string; destination?: string; lamports?: number } };
@@ -145,28 +211,15 @@ function allTransferIxs(tx: TxWithInner | null): NativeTransferIx[] {
   return [...topLevel, ...inner];
 }
 
-type FirstFunder = { source: string; lamports: number; blockTime: number; signature: string };
-
-/** Earliest inbound native SOL transfer into `address` within a recent window — that's who funded it. */
-async function findFirstFunder(address: string): Promise<FirstFunder | null> {
-  // getSignaturesForAddress returns newest-first. The funding transaction is
-  // by definition the wallet's OLDEST activity, so a naive `limit: 60` only
-  // samples the most recent 60 txs and — for any wallet with more than 60
-  // transactions ever — never sees the funding tx at all. Fetch up to 1000
-  // (RPC max, same bound as getWalletAge) and take the oldest slice of that
-  // batch instead. Still bounded — a wallet with >1000 lifetime txs can
-  // still miss its true origin — but this is "earliest funder we can see",
-  // not a guarantee for very old high-activity wallets.
-  // Fetched concurrently (bounded pool) rather than one-by-one from the
-  // back — sequential lookups over hundreds of signatures were the actual
-  // cause of multi-minute hangs before this fix.
+/** Non-Helius fallback — same logic as before, bounded to a 60-tx window. */
+async function findFirstFunderViaRpc(address: string): Promise<FirstFunder | null> {
   const SAMPLE = 60;
   const CONCURRENCY = 10;
   const allSigs = await rpc<Array<{ signature: string }>>("getSignaturesForAddress", [address, { limit: 1000 }]);
   if (!allSigs.length) return null;
   const sigs = allSigs.slice(-SAMPLE);
 
-  let earliest: FirstFunder & { blockTime: number } | null = null;
+  let earliest: (FirstFunder & { blockTime: number }) | null = null;
   for (let i = 0; i < sigs.length; i += CONCURRENCY) {
     const chunk = sigs.slice(i, i + CONCURRENCY);
     const txs = await Promise.all(
