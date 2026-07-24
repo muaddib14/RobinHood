@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { getShare } from "@/lib/shares";
-import ResultTabs from "./ResultTabs";
+import ScanResultView from "./ScanResultView";
 
 function Nav() {
   return (
@@ -68,7 +68,7 @@ export default async function SharedScanPage({ params }: { params: Promise<{ id:
                   <strong>{result.verdict_line}</strong>
                   <span className="time">Scanned {new Date(result.scanned_at).toLocaleString()}</span>
                 </div>
-                <ResultTabs address={result.address} findings={result.findings} />
+                <ScanResultView address={result.address} findings={result.findings} />
               </>
             )}
             <p className="scan-footnote">
