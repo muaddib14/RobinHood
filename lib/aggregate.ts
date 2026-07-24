@@ -11,6 +11,7 @@ import {
 } from "./arkham";
 import { getAccountLabel } from "./solanafm";
 import { getWalletLabel } from "./vybe";
+import { getFlaggedCreators } from "./goplus";
 import { synthesizeVerdict } from "./openrouter";
 import type { Finding, ScanResult, Verdict } from "./types";
 
@@ -55,12 +56,13 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
   const deployerAddress = report?.creator ?? address;
 
   // ---- Layer 1: Gotham engine + RugCheck, no Arkham dependency ----
-  const [age, deployerHistory, fundingTrace, mintFallback, lpFallback] = await Promise.allSettled([
+  const [age, deployerHistory, fundingTrace, mintFallback, lpFallback, flaggedCreators] = await Promise.allSettled([
     getWalletAge(deployerAddress),
     getDeployerHistory(deployerAddress),
     getFundingTrace(deployerAddress),
     report ? Promise.resolve(null) : getMintChecks(address),
     report ? Promise.resolve(null) : getLpLockStatus(address),
+    report ? getFlaggedCreators(address) : Promise.resolve([]),
   ]);
 
   // ---- deployer read ----
@@ -113,7 +115,10 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
     const freezeActive = !!report.token.freezeAuthority;
     const market = topMarket(report);
     const lpLockedPct = market?.lp?.lpLockedPct ?? 0;
-    const status: Finding["status"] = mintActive || lpLockedPct < 20 ? "flag" : freezeActive ? "warn" : "ok";
+    const flaggedList = flaggedCreators.status === "fulfilled" ? flaggedCreators.value : [];
+    const creatorFlagged = flaggedList.length > 0;
+    const status: Finding["status"] =
+      mintActive || lpLockedPct < 20 || creatorFlagged ? "flag" : freezeActive ? "warn" : "ok";
     findings.push({
       read: "token_checks",
       label: "Token checks",
@@ -121,8 +126,15 @@ export async function* scanAddressStream(address: string): AsyncGenerator<ScanSt
       status,
       summary: `Mint authority ${mintActive ? "<b>ACTIVE</b>" : "revoked"} · freeze authority ${
         freezeActive ? "<b>ACTIVE</b>" : "revoked"
-      } · LP ${lpLockedPct.toFixed(1)}% locked${market ? ` ($${Math.round(market.lp.baseUSD + market.lp.quoteUSD).toLocaleString()} pool)` : ""}.`,
-      data: { mintAuthority: report.token.mintAuthority, freezeAuthority: report.token.freezeAuthority, market },
+      } · LP ${lpLockedPct.toFixed(1)}% locked${market ? ` ($${Math.round(market.lp.baseUSD + market.lp.quoteUSD).toLocaleString()} pool)` : ""}${
+        creatorFlagged ? ` · <b>creator flagged by security scan</b>` : ""
+      }.`,
+      data: {
+        mintAuthority: report.token.mintAuthority,
+        freezeAuthority: report.token.freezeAuthority,
+        market,
+        flaggedCreators: flaggedList,
+      },
     });
   } else if (mintFallback.status === "fulfilled" && mintFallback.value?.isMint) {
     const mintActive = !mintFallback.value.mintAuthorityRevoked;
